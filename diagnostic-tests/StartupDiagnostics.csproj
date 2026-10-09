@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <DefineConstants>$(DefineConstants);ILLYAVERSE_FIXTURE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../src/SafeStartupDiagnostic.cs" Link="SafeStartupDiagnostic.cs" />
+    <Compile Include="../src/StartupHook.cs" Link="StartupHook.cs" />
+    <Compile Include="../src/ClientAssemblyPath.cs" Link="ClientAssemblyPath.cs" />
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+</Project>

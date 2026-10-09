@@ -26,13 +26,13 @@ internal static class Guard
         lock (gate)
         {
             if (LaunchState.Active) return;
-            var session = required("ILLYAVERSE_LAZER_SESSION");
+            var session = required("ILLYAVERSE_LAZER_SESSION", "session_missing");
             if (session.Length != 64 || !session.All(Uri.IsHexDigit)) fail("session_invalid");
-            installRoot = absoluteDirectory(required("ILLYAVERSE_LAZER_INSTALL_ROOT"));
-            dataRoot = absoluteDirectory(required("ILLYAVERSE_LAZER_DATA_ROOT"));
-            controlRoot = absoluteDirectory(required("ILLYAVERSE_LAZER_CONTROL_ROOT"));
+            installRoot = absoluteDirectory(required("ILLYAVERSE_LAZER_INSTALL_ROOT", "install_root_missing"));
+            dataRoot = absoluteDirectory(required("ILLYAVERSE_LAZER_DATA_ROOT", "data_root_missing"));
+            controlRoot = absoluteDirectory(required("ILLYAVERSE_LAZER_CONTROL_ROOT", "control_root_missing"));
             validateDataRoot();
-            var readyFile = canonicalPath(required("ILLYAVERSE_LAZER_READY_FILE"));
+            var readyFile = canonicalPath(required("ILLYAVERSE_LAZER_READY_FILE", "ready_file_missing"));
             if (!string.Equals(readyFile, Path.Combine(controlRoot, $"session-ready-{session}.json"), StringComparison.OrdinalIgnoreCase)) fail("ready_path_invalid");
             if (File.Exists(readyFile)) fail("ready_file_exists");
             rejectReparse(dataRoot);
@@ -41,15 +41,21 @@ internal static class Guard
             Environment.SetEnvironmentVariable("OSU_EXTERNAL_UPDATE_PROVIDER", "Illyaverse");
             // No inherited hook may apply unexpectedly to child processes. The active runtime property is unchanged.
             Environment.SetEnvironmentVariable("DOTNET_STARTUP_HOOKS", null);
+            SafeStartupDiagnostic.Checkpoint(StartupStage.Assemblies);
             AssemblyLoadContext.Default.Resolving += resolveClientAssembly;
             framework = loadClient("osu.Framework.dll");
             game = loadClient("osu.Game.dll");
             desktop = loadClient("osu!.dll");
             harmony = new Harmony(owner);
+            SafeStartupDiagnostic.Checkpoint(StartupStage.Contracts);
             verifyContracts();
+            SafeStartupDiagnostic.Checkpoint(StartupStage.NetworkGuards);
             installNetworkGuards();
+            SafeStartupDiagnostic.Checkpoint(StartupStage.ClientGuards);
             installClientGuards();
+            SafeStartupDiagnostic.Checkpoint(StartupStage.RelaxGuards);
             installRelaxGuards();
+            SafeStartupDiagnostic.Checkpoint(StartupStage.Ready);
             foreach (var method in patched)
                 if (Harmony.GetPatchInfo(method)?.Owners.Contains(owner) != true) fail("patch_not_installed");
             LaunchState.Active = true;
@@ -70,8 +76,8 @@ internal static class Guard
         }
     }
 
-    private static string required(string key) => Environment.GetEnvironmentVariable(key) is { Length: > 0 } value
-        ? value : throw new InvalidOperationException($"transfiguration_{key.ToLowerInvariant()}_missing");
+    private static string required(string key, string code) => Environment.GetEnvironmentVariable(key) is { Length: > 0 } value
+        ? value : throw SafeStartupDiagnostic.Rejection(code);
 
     private static string absoluteDirectory(string value)
     {
@@ -81,18 +87,7 @@ internal static class Guard
         return full;
     }
 
-    private static string canonicalPath(string value)
-    {
-        if (!Path.IsPathFullyQualified(value)) fail("path_not_absolute");
-        var path = Path.GetFullPath(value);
-        if (path.StartsWith(@"\\?\", StringComparison.Ordinal))
-        {
-            if (path.Length < 7 || !char.IsAsciiLetter(path[4]) || path[5] != ':' || path[6] != '\\') fail("path_not_local");
-            path = path[4..];
-        }
-        if (path.StartsWith(@"\\", StringComparison.Ordinal)) fail("path_not_local");
-        return path;
-    }
+    private static string canonicalPath(string value) => ClientAssemblyPath.Canonical(value);
 
     private static void validateDataRoot()
     {
@@ -124,7 +119,7 @@ internal static class Guard
         var loaded = AssemblyLoadContext.Default.Assemblies.FirstOrDefault(a => a.GetName().Name == expectedName);
         if (loaded is not null)
         {
-            if (!string.Equals(Path.GetFullPath(loaded.Location), path, StringComparison.OrdinalIgnoreCase)) fail("client_assembly_location_mismatch");
+            if (!ClientAssemblyPath.Matches(loaded.Location, path)) fail("client_assembly_location_mismatch");
             return loaded;
         }
         return AssemblyLoadContext.Default.LoadFromAssemblyPath(path);
@@ -274,5 +269,5 @@ internal static class Guard
     private static bool NoMigrationPrefix(ref bool __result) { __result = false; return false; }
     private static bool RulesetAssemblyPrefix(Assembly assembly) => assembly != typeof(StartupHook).Assembly;
     private static void ExternalUrlPrefix(string url) => NetworkPolicy.Require(new Uri(url, UriKind.Absolute));
-    private static void fail(string reason) => throw new InvalidOperationException("transfiguration_" + reason);
+    private static void fail(string reason) => throw SafeStartupDiagnostic.Rejection(reason);
 }

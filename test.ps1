@@ -16,6 +16,8 @@ function Invoke-ProofCommand([string]$Command, [string[]]$CommandArgs) {
     if ($LASTEXITCODE -ne 0) { throw "Proof command failed ($LASTEXITCODE): $Command" }
 }
 
+Invoke-ProofCommand 'dotnet' @('restore',(Join-Path $proofRoot 'diagnostic-tests/StartupDiagnostics.csproj'),'--source',(Join-Path $proofRoot 'diagnostic-tests'),'--ignore-failed-sources')
+Invoke-ProofCommand 'dotnet' @('run','--project',(Join-Path $proofRoot 'diagnostic-tests/StartupDiagnostics.csproj'),'-c','Release','--no-restore')
 & (Join-Path $proofRoot 'build.ps1') -NativeRoot $proofNative
 Invoke-ProofCommand 'dotnet' @('build',(Join-Path $proofRoot 'Transfiguration.csproj'),'-c','Fixture','-p:Fixture=true',"-p:NativeRoot=$proofNative",'--nologo')
 $proofRuntime = Join-Path $proofOutput 'runtime-10.0.12'

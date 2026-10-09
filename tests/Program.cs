@@ -235,6 +235,7 @@ internal static class Program
         Directory.CreateDirectory(control);
         var session = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
         var ready = Path.Combine(control, $"session-ready-{session}.json");
+        var failure = Path.Combine(control, $"session-failure-{session}.json");
         Environment.SetEnvironmentVariable("ILLYAVERSE_LAZER_INSTALL_ROOT", Path.GetFullPath(installation));
         Environment.SetEnvironmentVariable("ILLYAVERSE_LAZER_DATA_ROOT", data);
         Environment.SetEnvironmentVariable("ILLYAVERSE_LAZER_CONTROL_ROOT", scenario == "overlap" ? data : control);
@@ -261,11 +262,28 @@ internal static class Program
             {
                 require(scenario == "ready-exists" ? File.ReadAllText(ready) == "fixture-owner-marker" : !File.Exists(ready), "invalid " + scenario + " fails without overwriting or creating readiness");
                 require(!AssemblyLoadContext.Default.Assemblies.Any(a => a.GetName().Name == "osu.Game"), "invalid " + scenario + " stops before loading game or cached account storage");
+                if (scenario is "nonce" or "overlap")
+                    require(!File.Exists(failure), "invalid nonce or unowned control creates no failure diagnostic");
+                else
+                {
+                    using var diagnostic = JsonDocument.Parse(File.ReadAllText(failure));
+                    require(diagnostic.RootElement.EnumerateObject().Count() == 6
+                        && diagnostic.RootElement.GetProperty("protocol").GetInt32() == 1
+                        && diagnostic.RootElement.GetProperty("session").GetString() == session
+                        && diagnostic.RootElement.GetProperty("stage").GetString() == "bootstrap"
+                        && diagnostic.RootElement.GetProperty("code").GetString() == expected["transfiguration_".Length..]
+                        && diagnostic.RootElement.GetProperty("exception").GetString() == "TransfigurationStartupException"
+                        && diagnostic.RootElement.GetProperty("fixture").GetBoolean(), "own bootstrap rejection publishes only the exact safe failure schema");
+                }
                 return 0;
             }
             throw new InvalidOperationException("FAIL rejection scenario " + scenario);
         }
-        finally { if (scenario == "ready-exists") File.Delete(ready); }
+        finally
+        {
+            if (scenario == "ready-exists") File.Delete(ready);
+            if (scenario is not ("nonce" or "overlap")) File.Delete(failure);
+        }
     }
 
     private sealed class FakeStorageHost

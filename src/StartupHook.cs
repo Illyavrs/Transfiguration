@@ -7,8 +7,19 @@ internal static class StartupHook
 {
     public static void Initialize()
     {
-        AssemblyLoadContext.Default.Resolving += resolveEmbeddedHarmony;
-        initializeGuard();
+        Illyaverse.Transfiguration.SafeStartupDiagnostic.Begin();
+        try
+        {
+            AssemblyLoadContext.Default.Resolving += resolveEmbeddedHarmony;
+            initializeGuard();
+        }
+        catch (Exception exception)
+        {
+            // This bounded sidecar is the only diagnostic forwarded to the launcher.
+            // Preserve the startup-hook rejection: client Main must never follow it.
+            Illyaverse.Transfiguration.SafeStartupDiagnostic.Report(exception);
+            throw;
+        }
     }
 
     private static Assembly? resolveEmbeddedHarmony(AssemblyLoadContext context, AssemblyName name)
