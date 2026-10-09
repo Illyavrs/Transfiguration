@@ -16,9 +16,14 @@ function Invoke-ProofCommand([string]$Command, [string[]]$CommandArgs) {
     if ($LASTEXITCODE -ne 0) { throw "Proof command failed ($LASTEXITCODE): $Command" }
 }
 
+Invoke-ProofCommand 'dotnet' @('restore',(Join-Path $proofRoot 'endpoint-tests/EndpointPolicy.csproj'),'--source',(Join-Path $proofRoot 'endpoint-tests'),'--ignore-failed-sources')
+Invoke-ProofCommand 'dotnet' @('run','--project',(Join-Path $proofRoot 'endpoint-tests/EndpointPolicy.csproj'),'-c','Release','--no-restore')
 Invoke-ProofCommand 'dotnet' @('restore',(Join-Path $proofRoot 'diagnostic-tests/StartupDiagnostics.csproj'),'--source',(Join-Path $proofRoot 'diagnostic-tests'),'--ignore-failed-sources')
 Invoke-ProofCommand 'dotnet' @('run','--project',(Join-Path $proofRoot 'diagnostic-tests/StartupDiagnostics.csproj'),'-c','Release','--no-restore')
 Invoke-ProofCommand 'dotnet' @('run','--project',(Join-Path $proofRoot 'diagnostic-tests/StartupDiagnostics.csproj'),'-c','Release','--no-restore','--','--stock-contracts',$proofNative)
+Invoke-ProofCommand 'dotnet' @('restore',(Join-Path $proofRoot 'auth-tests/AuthConfigProof.csproj'),'--source',(Join-Path $proofRoot 'auth-tests'),'--ignore-failed-sources')
+$proofAuthRoot = Join-Path $proofOutput ('data-transfiguration-proof-auth-' + [Guid]::NewGuid().ToString('N'))
+Invoke-ProofCommand 'dotnet' @('run','--project',(Join-Path $proofRoot 'auth-tests/AuthConfigProof.csproj'),'-c','Release','--no-restore','--',$proofAuthRoot)
 & (Join-Path $proofRoot 'build.ps1') -NativeRoot $proofNative
 Invoke-ProofCommand 'dotnet' @('build',(Join-Path $proofRoot 'Transfiguration.csproj'),'-c','Fixture','-p:Fixture=true',"-p:NativeRoot=$proofNative",'--nologo')
 $proofRuntime = Join-Path $proofOutput 'runtime-10.0.12'
@@ -41,6 +46,7 @@ if ($NativeHost) {
     [IO.Directory]::CreateDirectory($proofControl) | Out-Null
     $proofNonce = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
     $proofEnvironment = @{
+        ILLYAVERSE_LAZER_SERVER_ENDPOINT = 'https://illya.test'
         ILLYAVERSE_LAZER_INSTALL_ROOT = $proofNative
         ILLYAVERSE_LAZER_DATA_ROOT = $proofData
         ILLYAVERSE_LAZER_CONTROL_ROOT = $proofControl

@@ -26,6 +26,7 @@ internal static class Guard
         lock (gate)
         {
             if (LaunchState.Active) return;
+            NetworkPolicy.Initialize();
             var session = required("ILLYAVERSE_LAZER_SESSION", "session_missing");
             if (session.Length != 64 || !session.All(Uri.IsHexDigit)) fail("session_invalid");
             installRoot = absoluteDirectory(required("ILLYAVERSE_LAZER_INSTALL_ROOT", "install_root_missing"));
@@ -146,6 +147,12 @@ internal static class Guard
         patched.Add(target);
     }
 
+    private static void patchFinalizer(MethodBase target, string patchName, Type patchType)
+    {
+        harmony.Patch(target, finalizer: new HarmonyMethod(local(patchType, patchName)) { priority = Priority.First });
+        patched.Add(target);
+    }
+
     private static void verifyContracts()
     {
         // This allowlist is updated only after the isolated contract and transport proofs pass.
@@ -220,9 +227,17 @@ internal static class Guard
         patch(method(storage, "TryChangeToCustomStorage", typeof(osu.Game.IO.OsuStorageError).MakeByRefType()), "NoCustomStoragePrefix");
         patch(method(storage, "ChangeDataPath", typeof(string)), "FixedDataPathPrefix");
         patch(method(type(game, "osu.Game.OsuGameBase"), "MigrateUserData", typeof(string)), "NoMigrationPrefix");
-        patch(AccountConfigIsolation.FilenameGetter, "FilenamePrefix", typeof(AccountConfigIsolation));
+        // Install the stream interception before Harmony compiles native config
+        // methods that could otherwise inline the small safe-write factory.
+        patch(AccountConfigIsolation.ReadStream, "ReadStreamPrefix", typeof(AccountConfigIsolation));
+        patch(AccountConfigIsolation.SafeWriteStream, "SafeWritePrefix", typeof(AccountConfigIsolation));
         patch(AccountConfigIsolation.ConfigConstructor, "ConfigConstructorPrefix", typeof(AccountConfigIsolation));
         patch(AccountConfigIsolation.ConfigConstructor, "ConfigConstructorPostfix", typeof(AccountConfigIsolation), postfix: true);
+        patch(AccountConfigIsolation.PerformLoad, "LoadPrefix", typeof(AccountConfigIsolation));
+        patchFinalizer(AccountConfigIsolation.PerformLoad, "ScopeFinalizer", typeof(AccountConfigIsolation));
+        patch(AccountConfigIsolation.PerformSave, "SavePrefix", typeof(AccountConfigIsolation));
+        patch(AccountConfigIsolation.PerformSave, "SavePostfix", typeof(AccountConfigIsolation), postfix: true);
+        patchFinalizer(AccountConfigIsolation.PerformSave, "ScopeFinalizer", typeof(AccountConfigIsolation));
         patch(AccountConfigIsolation.ApiConstructor, "ApiConstructorPrefix", typeof(AccountConfigIsolation));
         ClientStartupProgress.Install(patch);
     }

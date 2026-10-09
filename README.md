@@ -38,10 +38,10 @@ assemblies 與 proof runtime 不可放進正式 package。
 另有沒有網路操作的固定 policy proof。完整 stdout 留在 `proof-output/contract-proof.txt`。
 遊戲 UI、登入與完整協定仍需玩家實機驗證。
 
-帳號隔離 proof 使用真正的 stock `NativeStorage`、`OsuConfigManager` 和
+帳號隔離 proof 使用真正的 stock `NativeStorage`、`WrappedStorage`、`OsuConfigManager` 和
 `APIAccess` 建構子，資料僅有合成的有效／過期官方 token 與圖譜資源／Realm
-標記檔。它驗證私服設定在 Load 前選用另一個檔名、官方 `game.ini` 保持
-byte-identical，以及私服設定儲存、重載、記住密碼切換與 stock Logout handler。
+標記檔。它驗證原生共用偏好的載入、修改、存檔和重載，官方帳號行保持
+byte-identical，以及獨立私服帳號的儲存、部署分流、記住密碼切換與 stock Logout handler。
 proof 專用的 `APIAccess.run` prefix 讓 worker 在入口立即結束，避免登入或
 refresh 網路工作；此 patch 不存在正式 DLL。這些測試不是實際登入／refresh
 或共享 Realm schema 相容性驗證。
@@ -78,12 +78,24 @@ API success callbacks。
 至該資料目錄的 `rulesets/`。guardian／journal 和 readiness 使用啟動器既有的
 `%LOCALAPPDATA%\Illyaverse\Kaleidoscope` 控制目錄。
 
-私服的帳號與遊戲設定存於同一資料目錄的 `game.illyaverse.ini`。橋接在
-`IniConfigManager<OsuSetting>.Filename` 加上僅適用於 exact `OsuConfigManager`
-instance 的 patch，確保基底建構子的 Load 已選用私服檔名。`APIAccess` 的
-constructor prefix 在讀取 username/token 或啟動 worker 前再次驗證該 config
-確實經過隔離建構子，並且 endpoints 是固定私服設定。官方 `game.ini` 不讀取、
-不複製、不覆寫；私服第一次使用的遊戲偏好會從預設值開始。
+遊戲偏好沿用原本的 `game.ini`；音訊、輸入、顯示與介面設定會正常載入，
+修改後仍保存到同一份原始檔案。帳號資訊另存同目錄的 `auth.illyaverse.json`，
+只包含 `Username`、`Token`、`SaveUsername`、`SavePassword`，以及伺服器相關的
+`WasSupporter`、`UserOnlineStatus`、`PMFriendsOnly`。私服帳號按本次選定的
+canonical HTTPS origin 分開保存；切換網域或連接埠不會沿用另一個部署的 token。
+舊的 `game.illyaverse.ini` 不會載入或遷移。
+
+橋接在原生設定載入前，提供只替換這七項帳號值的讀取串流，原生 parser 和
+serializer 保留。原生存檔序列化完成後，遊戲偏好寫回 `game.ini`，原有官方
+帳號行保留原始位元組；私服登入、記住帳號或登出不會覆寫官方登入資訊。
+`APIAccess` constructor prefix 在讀取 username/token 或啟動 worker 前，
+再次核對帳號分流已完成及 endpoints 等於本次固定的部署設定。
+
+同一份 lazer 資料目錄同時只支援一個遊戲執行階段。啟動時會先要求所選安裝
+的既有程序正常關閉；檢查到其他 lazer 時會拒絕啟動。這些檢查不能阻止啟動後
+再由外部手動開啟 stock lazer。設定存檔使用本次擁有的臨時檔案和同目錄原子替換，替換前比較預期
+內容來偵測已發生的衝突。這是樂觀衝突偵測；不支援其他程式同時替換設定檔，
+也不保證保存內容比較之後才發生的外部寫入。
 
 遊戲名稱與 portable host option 保留；已解析的資料路徑由 bridge 固定，IPC
 使用獨立的 `illyaverse-lazer`。橋接模式下不再套用第二次 custom-storage
@@ -93,6 +105,7 @@ stable 自動匯入停用。若要更換資料路徑，先退出私服啟動器�
 
 | Child process environment | 值 |
 | --- | --- |
+| `ILLYAVERSE_LAZER_SERVER_ENDPOINT` | 本次啟動選定的 canonical HTTPS origin，例如 `https://illya.test`；必填 |
 | `ILLYAVERSE_LAZER_INSTALL_ROOT` | 所選官方安裝的絕對本機路徑 |
 | `ILLYAVERSE_LAZER_DATA_ROOT` | 玩家既有且已解析的 lazer 資料目錄，絕對本機路徑 |
 | `ILLYAVERSE_LAZER_CONTROL_ROOT` | `%LOCALAPPDATA%\Illyaverse\Kaleidoscope` |
@@ -103,19 +116,33 @@ native host 初始化自己的第一個 runtime context，強制
 `System.StartupHookProvider.IsSupported=true` 與 `STARTUP_HOOKS=<DLL absolute path>`
 後才 `hostfxr_run_app`。正式官方 Release 關閉了 startup hooks；單純設定
 `DOTNET_STARTUP_HOOKS` 無效。失敗時不可啟動原始 `osu!.exe` 作為 fallback。
-啟動器只在驗證 matching nonce 的這份精確 acknowledgment 後顯示 ready：
+啟動器驗證 acknowledgment 的 nonce 與 endpoint 都符合本次啟動設定。
+以下是使用預設端點時的 guard readiness；顯示遊戲執行中還需要收到
+相同 nonce／endpoint 的第一個成功繪製紀錄，且受監護的遊戲程序仍在執行：
 
 ```json
 {"protocol":1,"session":"<64 hex nonce>","status":"ready","endpoint":"https://illya.test","fixture":false}
 ```
 
-橋接先驗證 versions、hashes 與 method contracts，安裝並確認所有 Harmony patch
-owners 後才以 `CreateNew` 寫入 acknowledgment。它沒有 endpoint 選單或讀取 server
-環境變數，API 固定 `https://osu.illya.test`，hubs 固定 `https://spectator.illya.test`；
-OAuth client ID 與公開測試 client secret 固定為 `illyaverse-local-client` /
-`illyaverse-public-test-client`。所有 transport 僅接受精確列出的 Illya HTTPS/WSS
-hostnames 和 443，並禁用自動 redirects。BSS 和官方 liveness probe 為 null。
-使用正常 TLS 驗證；`illya.test` 的本機 DNS 與受信任 Caddy CA 仍是本機測試前提。
+橋接在其他 bootstrap 檢查前，驗證並固定
+`ILLYAVERSE_LAZER_SERVER_ENDPOINT`。僅接受 HTTPS、ASCII 多層 DNS 名稱與
+origin 根路徑；拒絕 IP、單層主機名稱、`ppy.sh` 及其子網域，以及包含
+userinfo、query、fragment、非根路徑、空白或反斜線的 URL。大小寫、根路徑
+斜線與預設 443 連接埠會正規化，其他有效連接埠保留。缺少或無效的端點
+會中止啟動；執行期間修改設定或環境變數不會改變這份 snapshot。
+
+API、website 與 hubs 共用選定的 origin；部署的反向代理分別路由
+`/oauth/*`、`/api/v2/*`、`/spectator`、`/multiplayer` 與 `/metadata`。
+transport 僅接受這個 DNS 名稱與其精確的 `osu`、`spectator`、`a`、`b`、
+`api`、`bss`、`c`、`ce`、`c4` 子網域，且必須使用相同連接埠及 HTTPS/WSS；
+自動 redirects 停用。OAuth client ID 與公開測試 client secret 仍為
+`illyaverse-local-client` / `illyaverse-public-test-client`，BSS 和官方
+liveness probe 為 null。
+
+橋接驗證 versions、hashes 與 method contracts，安裝並確認所有 Harmony
+patch owners 後才以 `CreateNew` 寫入 acknowledgment。連線使用正常 TLS
+驗證；所選部署必須有正確 DNS 與受信任憑證。`illya.test` 的本機 DNS
+與受信任 Caddy CA 仍是使用預設開發端點測試的前提。
 
 正式啟動器負責 process identity、已執行 client 的關閉/重啟、guardian、journal
 與遊戲退出後的 DLL 清理。bridge 本身不刪除已載入檔案。sentinel 不加入可玩的

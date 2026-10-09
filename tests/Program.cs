@@ -47,6 +47,8 @@ internal static class Program
     {
         if (args is ["--policy", var productionPath]) return policy(productionPath);
         if (args is ["--reject", var fixturePath, var installation, var rejectionData, var scenario]) return rejection(fixturePath, installation, rejectionData, scenario);
+        var accountOnly = args is ["--account-only", _, _, _];
+        if (accountOnly) args = args[1..];
         var nativeHosting = Environment.GetEnvironmentVariable("ILLYAVERSE_TRANSFIGURATION_NATIVE_PROOF") == "1";
         if (!nativeHosting && args.Length != 3) throw new ArgumentException("Arguments: fixture bridge DLL, native client directory, isolated data-transfiguration-proof directory");
         var bridgePath = Path.GetFullPath(nativeHosting ? Environment.GetEnvironmentVariable("ILLYAVERSE_TRANSFIGURATION_PROOF_BRIDGE")! : args[0]);
@@ -59,6 +61,7 @@ internal static class Program
         var session = nativeHosting ? Environment.GetEnvironmentVariable("ILLYAVERSE_LAZER_SESSION")!
             : Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
         var ready = Path.Combine(controlRoot, $"session-ready-{session}.json");
+        Environment.SetEnvironmentVariable("ILLYAVERSE_LAZER_SERVER_ENDPOINT", "https://illya.test");
         Environment.SetEnvironmentVariable("ILLYAVERSE_LAZER_INSTALL_ROOT", nativeRoot);
         Environment.SetEnvironmentVariable("ILLYAVERSE_LAZER_DATA_ROOT", dataRoot);
         Environment.SetEnvironmentVariable("ILLYAVERSE_LAZER_CONTROL_ROOT", controlRoot);
@@ -121,8 +124,16 @@ internal static class Program
             require(property(endpoints, "BeatmapSubmissionServiceUrl") is null && property(endpoints, "LivenessProbeUrl") is null, "unsupported BSS and official liveness probe are explicitly disabled");
             require(property(endpoints, "APIClientID") as string == "illyaverse-local-client", "OAuth client identity is fixed");
 
+            if (accountOnly)
+            {
+                checks += AccountIsolationProof.Run(bridge, dataRoot, endpoints);
+                require(fixtureHits == 0 && forbiddenHits == 0, "focused native account load/save/logout generated no network requests");
+                Console.WriteLine($"PASS {checks} focused shared-preference/auth-only native checks; no GameHost/Realm/GUI/player credentials/network");
+                return 0;
+            }
+
             var guard = bridge.GetType("Illyaverse.Transfiguration.Guard", true)!;
-            require(((System.Collections.ICollection)guard.GetField("patched", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!).Count == 38, "installed guard registry includes destination, shared storage, config isolation, RX and observational startup progress contracts");
+            require(((System.Collections.ICollection)guard.GetField("patched", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!).Count == 44, "installed guard registry includes destination, shared preferences, auth-only partition, RX and observational startup progress contracts");
             var options = Activator.CreateInstance(framework.GetType("osu.Framework.HostOptions", true)!)!;
             options.GetType().GetProperty("PortableInstallation")!.SetValue(options, true);
             object?[] hostArgs = ["osu", options];
@@ -209,14 +220,22 @@ internal static class Program
         // No startup hook, game assembly, private profile or network operation is used here.
         var bridge = AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.GetFullPath(productionPath));
         var policy = bridge.GetType("Illyaverse.Transfiguration.NetworkPolicy", true)!;
-        require(policy.GetField("Website")!.GetRawConstantValue() as string == "https://illya.test", "production website is fixed at build time");
-        require(policy.GetField("Api")!.GetRawConstantValue() as string == "https://osu.illya.test", "production API is fixed at build time");
-        require(policy.GetField("Hubs")!.GetRawConstantValue() as string == "https://spectator.illya.test", "production hubs are fixed at build time");
+        var endpointVariable = "ILLYAVERSE_LAZER_SERVER_ENDPOINT";
+        var previousEndpoint = Environment.GetEnvironmentVariable(endpointVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(endpointVariable, "HTTPS://ILLYA.TEST:443/");
+            method(policy, "Initialize").Invoke(null, null);
+        }
+        finally { Environment.SetEnvironmentVariable(endpointVariable, previousEndpoint); }
+        require(policy.GetProperty("Website")!.GetValue(null) as string == "https://illya.test", "production website binds the canonical launch endpoint");
+        require(policy.GetProperty("Api")!.GetValue(null) as string == "https://illya.test", "production API shares the captured deployment origin");
+        require(policy.GetProperty("Hubs")!.GetValue(null) as string == "https://illya.test", "production hubs share the captured deployment origin");
         var allows = method(policy, "Allows");
         foreach (var host in new[] { "illya.test", "osu.illya.test", "spectator.illya.test", "a.illya.test", "b.illya.test", "api.illya.test", "bss.illya.test", "c.illya.test", "ce.illya.test", "c4.illya.test" })
         {
-            require(allows.Invoke(null, [new Uri($"https://{host}/fixture"), false]) is true, "fixed production HTTPS destination " + host);
-            require(allows.Invoke(null, [new Uri($"wss://{host}/fixture"), true]) is true, "fixed production WSS destination " + host);
+            require(allows.Invoke(null, [new Uri($"https://{host}/fixture"), false]) is true, "captured production HTTPS destination " + host);
+            require(allows.Invoke(null, [new Uri($"wss://{host}/fixture"), true]) is true, "captured production WSS destination " + host);
         }
         foreach (var url in new[] { "https://osu.ppy.sh/oauth/token", "https://spectator.osu.ppy.sh", "https://a.ppy.sh", "https://ilya.test", "https://illya.test.evil.invalid", "https://evilillya.test", "https://illya.test:444", "http://illya.test", "https://user:secret@illya.test", "https://illya.test/#fragment", "http://127.0.0.1:18376" })
             require(allows.Invoke(null, [new Uri(url), false]) is false, "production rejects " + new Uri(url).Host + " (" + new Uri(url).Scheme + ")");
@@ -236,6 +255,7 @@ internal static class Program
         var session = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
         var ready = Path.Combine(control, $"session-ready-{session}.json");
         var failure = Path.Combine(control, $"session-failure-{session}.json");
+        Environment.SetEnvironmentVariable("ILLYAVERSE_LAZER_SERVER_ENDPOINT", "https://illya.test");
         Environment.SetEnvironmentVariable("ILLYAVERSE_LAZER_INSTALL_ROOT", Path.GetFullPath(installation));
         Environment.SetEnvironmentVariable("ILLYAVERSE_LAZER_DATA_ROOT", data);
         Environment.SetEnvironmentVariable("ILLYAVERSE_LAZER_CONTROL_ROOT", scenario == "overlap" ? data : control);
@@ -267,12 +287,13 @@ internal static class Program
                 else
                 {
                     using var diagnostic = JsonDocument.Parse(File.ReadAllText(failure));
-                    require(diagnostic.RootElement.EnumerateObject().Count() == 6
+                    require(diagnostic.RootElement.EnumerateObject().Count() == 7
                         && diagnostic.RootElement.GetProperty("protocol").GetInt32() == 1
                         && diagnostic.RootElement.GetProperty("session").GetString() == session
                         && diagnostic.RootElement.GetProperty("stage").GetString() == "bootstrap"
                         && diagnostic.RootElement.GetProperty("code").GetString() == expected["transfiguration_".Length..]
                         && diagnostic.RootElement.GetProperty("exception").GetString() == "TransfigurationStartupException"
+                        && diagnostic.RootElement.GetProperty("endpoint").GetString() == "http://127.0.0.1:18376"
                         && diagnostic.RootElement.GetProperty("fixture").GetBoolean(), "own bootstrap rejection publishes only the exact safe failure schema");
                 }
                 return 0;

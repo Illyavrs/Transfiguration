@@ -46,6 +46,7 @@ internal static class SafeStartupDiagnostic
                 stage = stageName,
                 code,
                 exception = classify(current),
+                endpoint = NetworkPolicy.DiagnosticEndpoint,
 #if ILLYAVERSE_FIXTURE
                 fixture = true,
 #else
@@ -256,6 +257,7 @@ internal static class SafeStartupDiagnostic
     private static bool allowed(StartupStage value, string code) => value switch
     {
         StartupStage.Bootstrap => code is "session_missing" or "install_root_missing" or "data_root_missing" or "control_root_missing"
+            or "server_endpoint_missing" or "server_endpoint_invalid"
             or "ready_file_missing" or "session_invalid" or "path_not_absolute" or "path_not_local" or "directory_missing"
             or "fixture_data_path_invalid" or "fixture_control_path_invalid" or "control_path_invalid" or "control_data_overlap"
             or "data_reparse_point" or "ready_path_invalid" or "ready_file_exists",

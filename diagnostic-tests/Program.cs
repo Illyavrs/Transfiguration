@@ -4,7 +4,7 @@ using Illyaverse.Transfiguration;
 internal static class Program
 {
     private static int checks;
-    private static readonly string[] environment = ["ILLYAVERSE_LAZER_SESSION", "ILLYAVERSE_LAZER_CONTROL_ROOT", "ILLYAVERSE_LAZER_READY_FILE"];
+    private static readonly string[] environment = ["ILLYAVERSE_LAZER_SESSION", "ILLYAVERSE_LAZER_CONTROL_ROOT", "ILLYAVERSE_LAZER_READY_FILE", "ILLYAVERSE_LAZER_SERVER_ENDPOINT"];
     private static readonly string session = new('a', 64);
 
     private static void require(bool value, string name)
@@ -20,6 +20,7 @@ internal static class Program
         if (!OperatingSystem.IsWindows()) { Console.WriteLine("SKIP Windows directory-handle proof requires Windows"); return 2; }
         LaunchState.Active = false;
         var previous = environment.ToDictionary(key => key, Environment.GetEnvironmentVariable);
+        Environment.SetEnvironmentVariable("ILLYAVERSE_LAZER_SERVER_ENDPOINT", "https://illya.test");
         var proofRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../..", "proof-output"));
         var nonce = Guid.NewGuid().ToString("N");
         var control = Path.Combine(proofRoot, "data-transfiguration-proof-diagnostic-" + nonce + "-control");
@@ -131,8 +132,9 @@ internal static class Program
                 var text = File.ReadAllText(failure);
                 using var parsed = JsonDocument.Parse(text);
                 var value = parsed.RootElement;
-                require(value.EnumerateObject().Count() == 6 && value.GetProperty("protocol").GetInt32() == 1
-                    && value.GetProperty("session").GetString() == session && value.GetProperty("fixture").GetBoolean(), "exact six-field failure schema");
+                require(value.EnumerateObject().Count() == 7 && value.GetProperty("protocol").GetInt32() == 1
+                    && value.GetProperty("session").GetString() == session && value.GetProperty("fixture").GetBoolean()
+                    && value.GetProperty("endpoint").GetString() == NetworkPolicy.Website, "exact seven-field failure schema binds the selected endpoint");
                 require(value.GetProperty("stage").GetString() == stageName(stage)
                     && value.GetProperty("code").GetString() == code(stage)
                     && value.GetProperty("exception").GetString() == "InvalidOperationException", "failure stage and static exception classification");

@@ -22,7 +22,17 @@ $bridgeLicenseOutput = Join-Path $bridgeOutput 'licenses'
 [IO.Directory]::CreateDirectory($bridgeLicenseOutput) | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $bridgeRoot 'licenses') -File | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $bridgeLicenseOutput -Force }
 $bridgeHash = (Get-FileHash -LiteralPath $bridgeDll -Algorithm SHA256).Hash.ToLowerInvariant()
-[ordered]@{ protocol = 1; artifact = $bridgeManifest.artifact; sha256 = $bridgeHash; endpoint = $bridgeManifest.endpoint; fixture = $false } |
+[ordered]@{
+    protocol = 1
+    artifact = $bridgeManifest.artifact
+    sha256 = $bridgeHash
+    default_endpoint = $bridgeManifest.default_endpoint
+    endpoint_mode = $bridgeManifest.endpoint_mode
+    configurable_endpoint = $bridgeManifest.configurable_endpoint
+    private_auth_filename = $bridgeManifest.private_auth_filename
+    shared_game_preferences = $bridgeManifest.shared_game_preferences
+    fixture = $false
+} |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $bridgeOutput 'artifact.json') -Encoding utf8NoBOM
 Write-Output "Production bridge: $bridgeOutput"
 Write-Output "SHA256: $bridgeHash"
