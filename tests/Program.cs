@@ -122,7 +122,7 @@ internal static class Program
             require(property(endpoints, "APIClientID") as string == "illyaverse-local-client", "OAuth client identity is fixed");
 
             var guard = bridge.GetType("Illyaverse.Transfiguration.Guard", true)!;
-            require(((System.Collections.ICollection)guard.GetField("patched", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!).Count == 29, "installed guard registry includes destination, shared storage, config isolation and RX contracts");
+            require(((System.Collections.ICollection)guard.GetField("patched", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!).Count == 38, "installed guard registry includes destination, shared storage, config isolation, RX and observational startup progress contracts");
             var options = Activator.CreateInstance(framework.GetType("osu.Framework.HostOptions", true)!)!;
             options.GetType().GetProperty("PortableInstallation")!.SetValue(options, true);
             object?[] hostArgs = ["osu", options];

@@ -14,9 +14,11 @@ internal static class Program
         Console.WriteLine("PASS " + name);
     }
 
-    public static int Main()
+    public static int Main(string[] args)
     {
+        if (args is ["--stock-contracts", var installation]) return StockProgressContracts.Run(installation);
         if (!OperatingSystem.IsWindows()) { Console.WriteLine("SKIP Windows directory-handle proof requires Windows"); return 2; }
+        LaunchState.Active = false;
         var previous = environment.ToDictionary(key => key, Environment.GetEnvironmentVariable);
         var proofRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../..", "proof-output"));
         var nonce = Guid.NewGuid().ToString("N");
@@ -151,11 +153,12 @@ internal static class Program
             using (var parsed = JsonDocument.Parse(File.ReadAllText(failure)))
                 require(parsed.RootElement.GetProperty("code").GetString() == "bootstrap_failed", "unknown own code falls back to static stage code");
             File.Delete(failure);
+            StartupProgressProof.Run(control, outside, marker, session, require);
             configure(outside, session);
             Guard.Failure = new InvalidOperationException("synthetic-secret");
             rejectSameException(Guard.Failure);
             require(Directory.EnumerateFileSystemEntries(outside).Count() == 1, "reporting failure preserves rejection and writes nothing outside owned control");
-            Console.WriteLine($"PASS {checks} isolated managed startup diagnostic checks; no client assemblies, GUI, Realm, real player data or network used");
+            Console.WriteLine($"PASS {checks} isolated managed startup diagnostic/progress checks; no client assemblies, GUI, Realm, real player data or network used");
             return 0;
         }
         catch (Exception exception)

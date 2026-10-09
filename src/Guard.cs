@@ -170,6 +170,7 @@ internal static class Guard
         _ = typeof(osu.Game.Rulesets.Transfiguration.BridgeRuleset).GetMethods();
         AccountConfigIsolation.VerifyContracts(dataRoot);
         RelaxContext.VerifyContracts();
+        ClientStartupProgress.VerifyContracts(desktop, framework);
     }
 
     private static void installRelaxGuards()
@@ -223,6 +224,7 @@ internal static class Guard
         patch(AccountConfigIsolation.ConfigConstructor, "ConfigConstructorPrefix", typeof(AccountConfigIsolation));
         patch(AccountConfigIsolation.ConfigConstructor, "ConfigConstructorPostfix", typeof(AccountConfigIsolation), postfix: true);
         patch(AccountConfigIsolation.ApiConstructor, "ApiConstructorPrefix", typeof(AccountConfigIsolation));
+        ClientStartupProgress.Install(patch);
     }
 
     private static bool EndpointsPrefix(ref object __result)
