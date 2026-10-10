@@ -1,7 +1,7 @@
 {
   "protocol": 1,
   "artifact": "osu.Game.Rulesets.Transfiguration.dll",
-  "default_endpoint": "https://illya.test",
+  "default_endpoint": "https://shdcloud.top",
   "endpoint_mode": "https_origin_per_session",
   "configurable_endpoint": true,
   "private_auth_filename": "auth.illyaverse.json",
