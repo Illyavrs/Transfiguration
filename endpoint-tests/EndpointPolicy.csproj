@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../src/NetworkPolicy.cs" Link="NetworkPolicy.cs" />
+    <Compile Include="../src/ExternalBrowserPolicy.cs" Link="ExternalBrowserPolicy.cs" />
     <Compile Include="../src/SafeStartupDiagnostic.cs" Link="SafeStartupDiagnostic.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>

@@ -77,6 +77,7 @@ internal static class Program
             require(!isolated.Allows(new Uri("wss://play.example.test:8443/socket")), "HTTP requires https");
 
             require(!NetworkPolicy.Allows(new Uri("https://illya.test/oauth/token")), "uninitialized production policy permits no request");
+            require(!ExternalBrowserPolicy.TryResolve("https://illya.test/beatmapsets/1#osu/1", out _), "uninitialized browser policy launches no destination");
             Environment.SetEnvironmentVariable(NetworkPolicy.EndpointEnvironmentName, null);
             rejected(NetworkPolicy.Initialize, "server_endpoint_missing", "missing origin rejects without an implicit default");
             Environment.SetEnvironmentVariable(NetworkPolicy.EndpointEnvironmentName, "https://osu.ppy.sh");
@@ -103,11 +104,52 @@ internal static class Program
             require(!NetworkPolicy.ResourcePrefix("https://osu.ppy.sh/asset", ref resource) && resource == "", "official image destination is suppressed before lookup");
             require(!NetworkPolicy.ResourcePrefix(NetworkPolicy.Website + "/media/fixture", ref resource) && resource == NetworkPolicy.Website + "/media/fixture",
                 "selected deployment resource stays available");
+            browserLinks();
             Console.WriteLine($"PASS {checks} source-linked production endpoint policy checks; no client, player data or network operations");
             return 0;
         }
         catch (Exception exception) { Console.Error.WriteLine("FAIL endpoint_policy_fixture " + exception.GetType().Name); return 1; }
         finally { Environment.SetEnvironmentVariable(NetworkPolicy.EndpointEnvironmentName, previous); }
+    }
+
+    private static void browserLinks()
+    {
+        var root = "https://play.example.test:8443";
+        foreach (var suffix in new[] { "", "#osu", "#taiko", "#fruits", "#mania", "#osu/5914819", "#taiko/3", "#fruits/4", "#mania/5" })
+        {
+            var source = root + "/beatmapsets/2630282" + suffix;
+            require(ExternalBrowserPolicy.TryResolve(source, out var resolved) && resolved == source,
+                "browser keeps a canonical official set and native selection fragment");
+        }
+        foreach (var id in new[] { "2000000000", "2147483647" })
+        {
+            var canonical = root + "/beatmapsets/local-" + id + "#osu/2000000001";
+            require(ExternalBrowserPolicy.TryResolve(root + "/beatmapsets/" + id + "#osu/2000000001", out var resolved) && resolved == canonical,
+                "browser canonicalizes native local set IDs while keeping difficulty selection");
+            require(ExternalBrowserPolicy.TryResolve(canonical, out resolved) && resolved == canonical,
+                "canonical local URL stays stable on repeated resolution");
+        }
+        foreach (var suffix in new[] { "/users/2", "/users/2#activity", "/scores/7", "/b/5914819", "/?tab=maps", "/connection#lazer" })
+            require(ExternalBrowserPolicy.TryResolve(root + suffix, out var resolved) && resolved == root + suffix,
+                "ordinary private website navigation remains available");
+        foreach (var source in new string?[]
+        {
+            null, "", "relative/path", "//play.example.test:8443/beatmapsets/1#osu/1", "javascript:alert(1)", "file:///C:/fixture",
+            "https://osu.ppy.sh/beatmapsets/1#osu/1", "https://play.example.test/beatmapsets/1#osu/1",
+            "https://api.play.example.test:8443/beatmapsets/1#osu/1", "https://play.example.test.evil.invalid:8443/",
+            "https://user:secret@play.example.test:8443/", "http://play.example.test:8443/", "https://play.example.test:8444/",
+            root + "/beatmapsets/0#osu/1", root + "/beatmapsets/01#osu/1", root + "/beatmapsets/2147483648#osu/1",
+            root + "/beatmapsets/local-1#osu/1", root + "/beatmapsets/1#catch/1", root + "/beatmapsets/1#osu/0",
+            root + "/beatmapsets/1#osu/1/extra", root + "/beatmapsets/1#osu/", root + "/beatmapsets/1/extra#osu/1",
+            root + "/../beatmapsets/1#osu/1", root + "/%2e%2e/beatmapsets/1#osu/1", root + "/beatmapsets%2f1#osu/1",
+            root + "/users\\2", root + "/users/2\n", root + "/users/ 2", root + "/" + new string('a', 4096),
+        }) require(!ExternalBrowserPolicy.TryResolve(source, out var resolved) && resolved == string.Empty,
+            "unsafe browser input is suppressed without throwing or an official fallback");
+
+        var browserAnchor = root + "/beatmapsets/2630282#osu/5914819";
+        require(!NetworkPolicy.Allows(new Uri(browserAnchor)), "browser fragment permission does not broaden HTTP destinations");
+        blocked(() => NetworkPolicy.Require(new Uri("https://osu.ppy.sh/oauth/token")), "official authentication remains blocked after resolving browser links");
+        blocked(() => NetworkPolicy.SocketConnectPrefix(new Uri("wss://osu.ppy.sh/socket")), "official websocket remains blocked after resolving browser links");
     }
 }
 

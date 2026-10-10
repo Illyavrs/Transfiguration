@@ -173,6 +173,8 @@ internal static class Guard
         if (method(type(game, "osu.Game.OsuGameBase"), "CreateEndpoints").ReturnType != endpoint) fail("endpoint_factory_incompatible");
         _ = method(type(framework, "osu.Framework.Host"), "GetSuitableDesktopHost", typeof(string), type(framework, "osu.Framework.HostOptions"));
         _ = method(type(framework, "osu.Framework.Platform.DesktopGameHost"), "GetDefaultGameStorage");
+        if (method(type(framework, "osu.Framework.Platform.DesktopGameHost"), "OpenUrlExternally", typeof(string)).ReturnType != typeof(void))
+            fail("browser_contract_incompatible");
         _ = method(type(desktop, "osu.Desktop.OsuGameDesktop"), "GetStorageForStableInstall");
         _ = typeof(osu.Game.Rulesets.Transfiguration.BridgeRuleset).GetMethods();
         AccountConfigIsolation.VerifyContracts(dataRoot);
@@ -285,6 +287,11 @@ internal static class Guard
     private static bool FixedDataPathPrefix() => false;
     private static bool NoMigrationPrefix(ref bool __result) { __result = false; return false; }
     private static bool RulesetAssemblyPrefix(Assembly assembly) => assembly != typeof(StartupHook).Assembly;
-    private static void ExternalUrlPrefix(string url) => NetworkPolicy.Require(new Uri(url, UriKind.Absolute));
+    private static bool ExternalUrlPrefix(ref string url)
+    {
+        if (!ExternalBrowserPolicy.TryResolve(url, out var resolved)) return false;
+        url = resolved;
+        return true;
+    }
     private static void fail(string reason) => throw SafeStartupDiagnostic.Rejection(reason);
 }

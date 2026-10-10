@@ -38,6 +38,21 @@ assemblies 與 proof runtime 不可放進正式 package。
 另有沒有網路操作的固定 policy proof。完整 stdout 留在 `proof-output/contract-proof.txt`。
 遊戲 UI、登入與完整協定仍需玩家實機驗證。
 
+外部網站連結使用獨立的 browser policy，允許本次部署的網站 origin 與
+`/beatmapsets/{id}#osu/{difficulty}` 等原生選擇片段；本地 native set ID
+轉成 `/beatmapsets/local-{id}`。不合法或其他網站的連結會停止開啟，不會
+在遊戲 UI thread 丟出例外。HTTP、WebSocket 與圖片目的地仍使用原本的
+嚴格 transport guards，browser fragment 的支援不會放行官方登入或 API。
+
+`endpoint-tests` 有 source-linked browser URL 與 transport 邊界檢查。
+`tests/Proof.csproj` 的 `--browser-only` 模式另外驗證已安裝的 stock browser
+patch 與重複不合法點擊，僅使用 managed fixture，沒有呼叫 shell 或 GameHost；
+這兩種測試仍不代表真實客戶端按鈕已實測。
+其 `--production-browser-only <production-dll>` 模式會在 fixture bootstrap 前
+直接測試編譯後的 production browser／transport policy。它要求已驗證的
+.NET 10.0.12，不載入 game／framework／Realm assemblies、不安裝全部 guards、
+不建立測試資料目錄或 API listener，也不呼叫 shell；同樣不代表原生按鈕實測。
+
 帳號隔離 proof 使用真正的 stock `NativeStorage`、`WrappedStorage`、`OsuConfigManager` 和
 `APIAccess` 建構子，資料僅有合成的有效／過期官方 token 與圖譜資源／Realm
 標記檔。它驗證原生共用偏好的載入、修改、存檔和重載，官方帳號行保持

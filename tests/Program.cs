@@ -45,10 +45,12 @@ internal static class Program
 
     private static async Task<int> run(string[] args)
     {
+        if (args is ["--production-browser-only", var browserProductionPath]) return ProductionBrowserProof.Run(browserProductionPath);
         if (args is ["--policy", var productionPath]) return policy(productionPath);
         if (args is ["--reject", var fixturePath, var installation, var rejectionData, var scenario]) return rejection(fixturePath, installation, rejectionData, scenario);
         var accountOnly = args is ["--account-only", _, _, _];
-        if (accountOnly) args = args[1..];
+        var browserOnly = args is ["--browser-only", _, _, _];
+        if (accountOnly || browserOnly) args = args[1..];
         var nativeHosting = Environment.GetEnvironmentVariable("ILLYAVERSE_TRANSFIGURATION_NATIVE_PROOF") == "1";
         if (!nativeHosting && args.Length != 3) throw new ArgumentException("Arguments: fixture bridge DLL, native client directory, isolated data-transfiguration-proof directory");
         var bridgePath = Path.GetFullPath(nativeHosting ? Environment.GetEnvironmentVariable("ILLYAVERSE_TRANSFIGURATION_PROOF_BRIDGE")! : args[0]);
@@ -123,6 +125,35 @@ internal static class Program
             require(property(endpoints, "MetadataUrl") as string == "http://127.0.0.1:18376/metadata", "real native CreateEndpoints redirects metadata");
             require(property(endpoints, "BeatmapSubmissionServiceUrl") is null && property(endpoints, "LivenessProbeUrl") is null, "unsupported BSS and official liveness probe are explicitly disabled");
             require(property(endpoints, "APIClientID") as string == "illyaverse-local-client", "OAuth client identity is fixed");
+
+            if (browserOnly)
+            {
+                var browserGuard = bridge.GetType("Illyaverse.Transfiguration.Guard", true)!;
+                var browserPrefix = method(browserGuard, "ExternalUrlPrefix");
+                require(browserPrefix.ReturnType == typeof(bool) && browserPrefix.GetParameters().Single().ParameterType == typeof(string).MakeByRefType(),
+                    "browser prefix safely controls the original void method and rewritten string");
+                var nativeBrowserMethod = framework.GetType("osu.Framework.Platform.DesktopGameHost", true)!.GetMethod("OpenUrlExternally")!;
+                var guardedMethods = (System.Collections.IList)browserGuard.GetField("patched", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+                require(nativeBrowserMethod.ReturnType == typeof(void) && guardedMethods.Contains(nativeBrowserMethod),
+                    "stock external browser method is present in the installed guard registry");
+                foreach (var (source, expected) in new[]
+                {
+                    ("http://127.0.0.1:18376/beatmapsets/2630282#osu/5914819", "http://127.0.0.1:18376/beatmapsets/2630282#osu/5914819"),
+                    ("http://127.0.0.1:18376/beatmapsets/2630282#mania", "http://127.0.0.1:18376/beatmapsets/2630282#mania"),
+                    ("http://127.0.0.1:18376/beatmapsets/2000000000#osu/2000000001", "http://127.0.0.1:18376/beatmapsets/local-2000000000#osu/2000000001"),
+                })
+                {
+                    object?[] browserArgs = [source];
+                    require(browserPrefix.Invoke(null, browserArgs) is true && browserArgs[0] as string == expected,
+                        "managed browser prefix preserves native fragments and canonical local set IDs");
+                }
+                foreach (var source in new[] { "not-a-url", "javascript:alert(1)", "https://osu.ppy.sh/beatmapsets/1#osu/1", "http://127.0.0.1:18377/beatmapsets/1#osu/1" })
+                    for (var attempt = 0; attempt < 3; attempt++)
+                        require(browserPrefix.Invoke(null, [source]) is false, "repeated unsafe browser clicks are suppressed without an exception");
+                require(fixtureHits == 0 && forbiddenHits == 0, "browser resolution never sends authentication, API or resource traffic");
+                Console.WriteLine($"PASS {checks} focused installed native browser guard checks; no shell, GameHost, Realm, GUI or player data");
+                return 0;
+            }
 
             if (accountOnly)
             {
