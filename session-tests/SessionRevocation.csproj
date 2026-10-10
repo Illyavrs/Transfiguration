@@ -11,6 +11,8 @@
     <Compile Include="../src/NetworkPolicy.cs" Link="NetworkPolicy.cs" />
     <Compile Include="../src/SafeStartupDiagnostic.cs" Link="SafeStartupDiagnostic.cs" />
     <Compile Include="../src/PrivateSessionRevocation.cs" Link="PrivateSessionRevocation.cs" />
+    <Compile Include="../src/SessionWelcomeState.cs" Link="SessionWelcomeState.cs" />
     <Compile Include="Program.cs" />
+    <Compile Include="WelcomeStateProof.cs" />
   </ItemGroup>
 </Project>

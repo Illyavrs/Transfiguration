@@ -7,8 +7,9 @@ internal static class Program
     private const string credential = "a0000000000040008000000000000001b0000000000040008000000000000002";
     private static int checks;
 
-    public static async Task<int> Main()
+    public static async Task<int> Main(string[] args)
     {
+        if (args is ["--welcome-only"]) return WelcomeStateProof.Run();
         var previous = Environment.GetEnvironmentVariable(NetworkPolicy.EndpointEnvironmentName);
         try
         {

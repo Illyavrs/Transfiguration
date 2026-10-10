@@ -46,6 +46,10 @@ internal static class Program
     private static async Task<int> run(string[] args)
     {
         if (args is ["--production-browser-only", var browserProductionPath]) return ProductionBrowserProof.Run(browserProductionPath);
+        if (args is ["--production-welcome-contracts", var welcomeProductionPath, var welcomeNativeRoot, var welcomeBoundReceipt])
+            return ProductionWelcomeProof.Run(welcomeProductionPath, welcomeNativeRoot, welcomeBoundReceipt);
+        if (args is ["--production-relax-contracts", var relaxProductionPath, var relaxNativeRoot, var relaxBoundReceipt])
+            return ProductionRelaxProof.Run(relaxProductionPath, relaxNativeRoot, relaxBoundReceipt);
         if (args is ["--production-logout-contracts", var logoutProductionPath, var logoutNativeRoot, var boundReceipt])
             return ProductionLogoutProof.Run(logoutProductionPath, logoutNativeRoot, boundReceipt);
         if (args is ["--policy", var productionPath]) return policy(productionPath);
@@ -166,7 +170,7 @@ internal static class Program
             }
 
             var guard = bridge.GetType("Illyaverse.Transfiguration.Guard", true)!;
-            require(((System.Collections.ICollection)guard.GetField("patched", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!).Count == 48, "installed guard registry includes destination, shared preferences, auth-only partition, RX, explicit UI logout and observational startup progress contracts");
+            require(((System.Collections.ICollection)guard.GetField("patched", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!).Count == 51, "installed guard registry includes destination, shared preferences, auth-only partition, RX request builders, explicit UI logout and observational startup progress contracts");
             var options = Activator.CreateInstance(framework.GetType("osu.Framework.HostOptions", true)!)!;
             options.GetType().GetProperty("PortableInstallation")!.SetValue(options, true);
             object?[] hostArgs = ["osu", options];

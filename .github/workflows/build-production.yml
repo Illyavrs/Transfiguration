@@ -1,0 +1,79 @@
+name: Build verified Transfiguration production input
+
+# Manual trusted source only. The runner owns a separately installed, pinned
+# stock client; no client binaries or player data are acquired by this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Full lowercase source commit; must equal this dispatch ref's commit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: transfiguration-native-production
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: ${{ github.repository == 'Illyavrs/Transfiguration' && github.event_name == 'workflow_dispatch' }}
+    runs-on: [self-hosted, Windows, X64, illyaverse-native]
+    environment: transfiguration-build
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      # Keep packaged source text byte-identical to Git blobs on Windows.
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+      PRODUCTION_SOURCE_COMMIT: ${{ inputs.source_commit }}
+      PRODUCTION_OUTPUT_ROOT: ${{ runner.temp }}/transfiguration-production-${{ github.run_id }}-${{ github.run_attempt }}
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+      DOTNET_NOLOGO: '1'
+      # Inert RX builders require one captured HTTPS origin; no request is sent.
+      ILLYAVERSE_LAZER_SERVER_ENDPOINT: https://illya.test
+    steps:
+      - name: Require the exact dispatched source
+        run: |
+          if ($env:PRODUCTION_SOURCE_COMMIT -cnotmatch '^[0-9a-f]{40}$' -or $env:PRODUCTION_SOURCE_COMMIT -cne $env:GITHUB_SHA) {
+            throw 'The reviewed source must equal the dispatched ref commit.'
+          }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify producer guards without inspecting the installed client
+        run: |
+          node --check scripts/production-evidence.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Producer syntax check failed.' }
+          node --test scripts/production-evidence.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Producer synthetic guard tests failed.' }
+      - name: Build and verify detached production metadata
+        run: |
+          # ILLYAVERSE_NATIVE_ROOT is an operator-provisioned runner environment
+          # variable, never a dispatch input. .NET 10 and Node 24 are preinstalled.
+          ./scripts/verify-production.ps1 -SourceCommit $env:PRODUCTION_SOURCE_COMMIT -OutputRoot $env:PRODUCTION_OUTPUT_ROOT
+      - name: Upload the exact release workflow input
+        uses: actions/upload-artifact@v4
+        with:
+          name: transfiguration-verified-production
+          path: |
+            ${{ env.PRODUCTION_OUTPUT_ROOT }}/verified/production/
+            ${{ env.PRODUCTION_OUTPUT_ROOT }}/verified/production-verification.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Preserve provenance and detached proof logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: transfiguration-production-provenance
+          path: ${{ env.PRODUCTION_OUTPUT_ROOT }}/provenance/
+          if-no-files-found: warn
+          retention-days: 30

@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using osu.Framework.Bindables;
+using osu.Framework.IO.Network;
 using osu.Framework.Localisation;
 using osu.Game;
 using osu.Game.Beatmaps;
@@ -25,9 +26,10 @@ public static class RelaxProof
         Console.WriteLine("PASS RX " + name);
     }
 
-    internal static int Run(Assembly bridge)
+    internal static int Run(Assembly bridge, string? endpoint = null, bool buildersOnly = false)
     {
         var api = createApi();
+        if (endpoint is not null) api.Endpoint = endpoint;
         var fake = (IAPIProvider)api;
         var game = (OsuGameBase)RuntimeHelpers.GetUninitializedObject(typeof(OsuGameBase));
         var mods = new Bindable<IReadOnlyList<Mod>>(Array.Empty<Mod>());
@@ -45,6 +47,25 @@ public static class RelaxProof
             request.AttachAPI(fake);
             return (string)nativeUri.GetValue(request)!;
         }
+        (string Key, string Value)[] query(APIRequest request, string expectedVariant)
+        {
+            request.AttachAPI(fake);
+            using var web = (WebRequest)request.GetType().GetMethod("CreateWebRequest", instance)!.Invoke(request, null)!;
+            var parameters = ((IEnumerable<(string Key, string Value)>)typeof(WebRequest)
+                .GetField("queryParameters", instance)!.GetValue(web)!).ToArray();
+            require(!web.Url.Contains('?'), "parameterized native read keeps its base URL query-free");
+            require(parameters.Count(p => p.Key == "variant") == 1
+                && parameters.Single(p => p.Key == "variant").Value == expectedVariant,
+                "native builder carries exactly one immutable variant parameter");
+            // The pinned framework joins these tuples with '?' at send time.
+            // Reconstructing that address is inert: no Perform/Queue is called.
+            var wire = web.Url + "?" + string.Join("&", parameters.Select(p => p.Key + "=" + Uri.EscapeDataString(p.Value)));
+            require(wire.Count(c => c == '?') == 1 && !wire.Contains("variant=" + expectedVariant + "?", StringComparison.Ordinal),
+                "native parameter tuples produce one query delimiter");
+            return parameters;
+        }
+        var queuedVanillaRanking = new GetUserRankingsRequest(osu);
+        var queuedVanillaBoard = new GetScoresRequest(DispatchProxy.Create<IBeatmapInfo, FakeBeatmap>(), osu);
         var vanilla = new GetUserRequest(42, osu);
         require(uri(vanilla).EndsWith("&variant=vanilla", StringComparison.Ordinal), "profile preserves its existing key query and defaults vanilla");
         mods.Value = [rx];
@@ -55,26 +76,46 @@ public static class RelaxProof
         require(uri(new GetUserRequest(42, mania)).EndsWith("&variant=vanilla", StringComparison.Ordinal), "mania explicitly stays vanilla with RX selected elsewhere");
         require(uri(new GetMeRequest()).EndsWith("?variant=relax", StringComparison.Ordinal), "default native me profile uses base osu relax partition");
         require(uri(new GetMeRequest(mania)).EndsWith("?variant=vanilla", StringComparison.Ordinal), "explicit mania me profile stays vanilla");
-        require(uri(new GetUserRankingsRequest(osu)).EndsWith("/performance?variant=relax", StringComparison.Ordinal), "native PP rankings select relax");
-        require(!uri(new GetUserRankingsRequest(osu, UserRankingsType.Score)).Contains("variant=", StringComparison.Ordinal), "unsupported score ranking request is untouched");
-        require(uri(new GetUserScoresRequest(42, ScoreType.Best, new PaginationParameters(), osu)).EndsWith("?variant=relax", StringComparison.Ordinal), "native best score list selects relax");
-        require(uri(new GetUserScoresRequest(42, ScoreType.Recent, new PaginationParameters(), mania)).EndsWith("?variant=vanilla", StringComparison.Ordinal), "native mania recent score list stays vanilla");
+        require(query(new GetUserRankingsRequest(osu), "relax").Any(p => p == ("page", "1")), "native PP rankings keep the stock page parameter");
+        require(query(new GetUserRankingsRequest(osu, UserRankingsType.Score, 2, CountryCode.JP), "relax")
+            .Where(p => p.Key != "variant").SequenceEqual([("page", "2"), ("country", "JP")]), "native score rankings select relax and preserve page/country");
+        require(query(new GetUserScoresRequest(42, ScoreType.Best, new PaginationParameters(20, 6), osu), "relax")
+            .Where(p => p.Key != "variant").SequenceEqual([("offset", "20"), ("limit", "6"), ("mode", "osu")]), "native best score builder preserves its complete stock pagination and selects relax");
+        require(query(new GetUserScoresRequest(42, ScoreType.Recent, new PaginationParameters(50, 51), mania), "vanilla")
+            .Where(p => p.Key != "variant").SequenceEqual([("offset", "50"), ("limit", "51"), ("mode", "mania")]), "native mania recent score builder preserves its complete stock pagination and stays vanilla");
+        require(query(queuedVanillaRanking, "vanilla").Any(p => p == ("page", "1")), "queued vanilla rankings keep their constructor scope after RX toggle");
+        require(query(queuedVanillaBoard, "vanilla").Where(p => p.Key != "variant")
+            .SequenceEqual([("type", "global"), ("mode", "osu"), ("limit", "50")]), "queued vanilla board preserves complete stock query parameters");
         require(!uri(new GetUserScoresRequest(42, ScoreType.Pinned, new PaginationParameters(), osu)).Contains("variant=", StringComparison.Ordinal), "unsupported pinned score read is untouched");
         var beatmap = DispatchProxy.Create<IBeatmapInfo, FakeBeatmap>();
         var relaxBoard = new GetScoresRequest(beatmap, osu);
-        require(uri(relaxBoard).EndsWith("?variant=relax", StringComparison.Ordinal), "native map leaderboard selects relax");
+        require(query(relaxBoard, "relax").Where(p => p.Key != "variant")
+            .SequenceEqual([("type", "global"), ("mode", "osu"), ("limit", "50")]), "native global map leaderboard preserves complete stock query parameters");
         var filtered = new GetScoresRequest(beatmap, osu, BeatmapLeaderboardScope.Global, [new FixtureNoMod()]);
         var filterMods = (IEnumerable<IMod>)typeof(GetScoresRequest).GetField("mods", instance)!.GetValue(filtered)!;
         require(filterMods.Select(m => m.Acronym).SequenceEqual(["RX"]), "native NM filter is normalized to RX in relax context");
+        require(query(filtered, "relax").Where(p => p.Key != "variant")
+            .SequenceEqual([("type", "global"), ("mode", "osu"), ("mods[]", "RX"), ("limit", "100")]), "filtered native map read preserves normalized mods and supporter limit");
+        var countryBoard = new GetScoresRequest(beatmap, osu, BeatmapLeaderboardScope.Country);
+        require(query(countryBoard, "relax").Any(p => p == ("type", "country")), "native country map leaderboard preserves its scope");
+        var friendBoard = new GetScoresRequest(beatmap, osu, BeatmapLeaderboardScope.Friend);
+        require(query(friendBoard, "relax").Any(p => p == ("type", "friend")), "native friend map leaderboard preserves its scope");
         var maniaBoard = new GetScoresRequest(beatmap, mania, BeatmapLeaderboardScope.Global, [rx]);
-        require(uri(maniaBoard).EndsWith("?variant=vanilla", StringComparison.Ordinal)
+        require(query(maniaBoard, "vanilla").Any(p => p == ("mode", "mania"))
             && !((IEnumerable<IMod>)typeof(GetScoresRequest).GetField("mods", instance)!.GetValue(maniaBoard)!).Any(), "mania board query and mod filter reject RX context");
         mods.Value = [];
         var vanillaBoard = new GetScoresRequest(beatmap, osu);
         require(!vanillaBoard.Equals(relaxBoard), "native board cache equality separates vanilla and relax with no explicit mod filter");
-        require(uri(relaxBoard).EndsWith("?variant=relax", StringComparison.Ordinal), "queued relax map read remains relax after toggling off");
+        require(query(relaxBoard, "relax").Any(p => p == ("type", "global")), "queued relax map read remains relax after toggling off");
         foreach (var target in new[] { "chat/channels", "oauth/token", "scores/7/download", "beatmaps/7/scores" })
             require(!uri(new UntouchedRequest(target)).Contains("variant=", StringComparison.Ordinal), "unlisted request remains untouched even for " + target);
+
+        if (buildersOnly)
+        {
+            require(api.Requests.Count == 0 && api.UnexpectedCalls == 0, "detached native builder proof never queues an API request or reads auth");
+            Console.WriteLine($"PASS {checks} RX inert native request-builder checks; no Perform/Queue/API worker/GameHost/config/Realm/player auth/network");
+            return checks;
+        }
 
         api.DrainScheduled();
         var provider = new LocalUserStatisticsProvider();
@@ -158,6 +199,7 @@ public static class RelaxProof
 
     public class FakeApi
     {
+        internal string Endpoint = "http://127.0.0.1:18376";
         internal readonly List<APIRequest> Requests = new();
         internal readonly Queue<Action> Scheduled = new();
         internal readonly Bindable<APIUser> User = new(new APIUser { Id = 42 });
@@ -166,7 +208,7 @@ public static class RelaxProof
         {
             switch (name)
             {
-                case "get_Endpoints": return new EndpointConfiguration { APIUrl = "http://127.0.0.1:18376" };
+                case "get_Endpoints": return new EndpointConfiguration { APIUrl = Endpoint };
                 case "get_LocalUser": return User;
                 case "Queue": var request = (APIRequest)args![0]!; request.AttachAPI((IAPIProvider)(object)this); Requests.Add(request); return null;
                 case "Schedule": Scheduled.Enqueue((Action)args![0]!); return null;

@@ -68,11 +68,48 @@ internal static class ProductionBrowserProof
                 }
 
             var allows = method(network, "Allows");
+            var resourceLookup = method(network, "ResourcePrefix");
+            foreach (var id in new[] { "1", "2630282", "2147483647" })
+            {
+                var officialPreview = "https://b.ppy.sh/preview/" + id + ".mp3";
+                object?[] values = [officialPreview, "unchanged"];
+                var expected = "https://illya.test/api/v2/beatmapsets/" + id + "/preview";
+                require(resourceLookup.Invoke(null, values) is false && values[1] as string == expected
+                    && allows.Invoke(null, [new Uri(expected), false]) is true,
+                    "compiled production stock preview lookup resolves to the captured private endpoint");
+                require(allows.Invoke(null, [new Uri(officialPreview), false]) is false,
+                    "compiled production lookup translation leaves direct official preview HTTP blocked");
+            }
+            foreach (var source in new string?[]
+            {
+                null, "", "https://b.ppy.sh/preview/0.mp3", "https://b.ppy.sh/preview/01.mp3", "https://b.ppy.sh/preview/-1.mp3",
+                "https://b.ppy.sh/preview/+1.mp3", "https://b.ppy.sh/preview/2147483648.mp3", "https://b.ppy.sh/preview/999999999999999999999.mp3",
+                "http://b.ppy.sh/preview/1.mp3", "HTTPS://b.ppy.sh/preview/1.mp3", "https://B.PPY.SH/preview/1.mp3",
+                "https://b.ppy.sh:443/preview/1.mp3", "https://b.ppy.sh:8443/preview/1.mp3", "https://b.ppy.sh./preview/1.mp3",
+                "https://b.ppy.sh.evil.invalid/preview/1.mp3", "https://user:secret@b.ppy.sh/preview/1.mp3", "https://b.ppy.sh@other.example.test/preview/1.mp3",
+                "https://b.ppy.sh/preview/1.mp3?", "https://b.ppy.sh/preview/1.mp3?token=synthetic", "https://b.ppy.sh/preview/1.mp3#",
+                "https://b.ppy.sh/preview/1.mp3#fragment", "https://b.ppy.sh/preview/%31.mp3", "https://b.ppy.sh/preview/１.mp3",
+                "https://b.ppy.sh/preview/1.MP3", "https://b.ppy.sh/Preview/1.mp3", "https://b.ppy.sh/preview/.mp3",
+                "https://b.ppy.sh/preview/1.mp3/extra", "https://b.ppy.sh/preview//1.mp3", "https://b.ppy.sh/preview/../preview/1.mp3",
+                "https://b.ppy.sh/preview/%2e%2e/preview/1.mp3", "https://b.ppy.sh/preview\\1.mp3", "https://b.ppy.sh/preview/1.mp3\n",
+                " https://b.ppy.sh/preview/1.mp3", "https://b.ppy.sh/preview/ 1.mp3", "https://b.ppy.sh/covers/1.jpg",
+                "https://assets.ppy.sh/preview/1.mp3", "https://osu.ppy.sh/preview/1.mp3",
+            })
+            {
+                object?[] values = [source, "unchanged"];
+                require(resourceLookup.Invoke(null, values) is false && values[1] as string == string.Empty,
+                    "compiled production resource lookup suppresses noncanonical official audio and unrelated resources without throwing");
+            }
+            object?[] privateResource = ["https://illya.test/api/v2/beatmapsets/2630282/preview", "unresolved"];
+            require(resourceLookup.Invoke(null, privateResource) is false
+                && privateResource[1] as string == "https://illya.test/api/v2/beatmapsets/2630282/preview",
+                "compiled production policy preserves server-provided private preview URLs");
             require(allows.Invoke(null, [new Uri("https://illya.test/beatmapsets/1#osu/1"), false]) is false,
                 "production HTTP policy still rejects browser-only fragments");
             foreach (var (uri, socket) in new[]
             {
                 ("https://osu.ppy.sh/oauth/token", false), ("https://assets.ppy.sh/beatmaps/1/covers/cover.jpg", false),
+                ("https://b.ppy.sh/preview/2630282.mp3", false),
                 ("wss://spectator.osu.ppy.sh/socket", true), ("https://illya.test:444/oauth/token", false),
                 ("http://illya.test/oauth/token", false), ("https://user:secret@illya.test/oauth/token", false),
             })

@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using osu.Framework.Bindables;
+using osu.Framework.IO.Network;
 using osu.Game;
 using osu.Game.Online;
 using osu.Game.Online.API;
@@ -62,6 +63,12 @@ internal static class RelaxContext
         if (typeof(APIRequest).GetProperty("Uri", instance)?.PropertyType != typeof(string)
             || typeof(GetUserScoresRequest).GetField("type", instance)?.FieldType != typeof(ScoreType))
             throw new InvalidOperationException("transfiguration_read_request_contract_incompatible");
+        foreach (var type in new[] { typeof(GetScoresRequest), typeof(GetUserScoresRequest), typeof(GetUserRankingsRequest) })
+        {
+            var builder = type.GetMethod("CreateWebRequest", instance | BindingFlags.DeclaredOnly);
+            if (builder is null || builder.ReturnType != typeof(WebRequest) || builder.GetParameters().Length != 0)
+                throw new InvalidOperationException("transfiguration_read_builder_contract_incompatible");
+        }
     }
 
     private static RequestScope snapshot()
@@ -128,14 +135,29 @@ internal static class RelaxContext
 
     private static void UriPostfix(APIRequest __instance, ref string __result)
     {
-        if (!eligible(__instance)) return;
-        if (__instance is GetUserScoresRequest scores && scores.GetType().GetField("type", instance)!.GetValue(scores)?.ToString() is not ("Best" or "Recent")) return;
-        if (__instance is GetUserRankingsRequest ranking && ranking.Type != UserRankingsType.Performance) return;
+        // These two requests have no AddParameter calls. The paginated and
+        // leaderboard builders below must use the framework's parameter list:
+        // WebRequest appends its query with '?' even when Url has a query.
+        if (__instance.GetType() != typeof(GetMeRequest) && __instance.GetType() != typeof(GetUserRequest)) return;
         if (!Uri.TryCreate(__result, UriKind.Absolute, out var uri) || !NetworkPolicy.Allows(uri)
             || !uri.AbsolutePath.StartsWith("/api/v2/", StringComparison.Ordinal))
             throw new InvalidOperationException("transfiguration_read_endpoint_invalid");
         var scope = requests.GetValue(__instance, _ => snapshot());
         __result += (__result.Contains('?') ? "&" : "?") + "variant=" + variant(__instance, scope);
+    }
+
+    private static void ReadWebRequestPostfix(APIRequest __instance, WebRequest __result)
+    {
+        if (__instance.GetType() != typeof(GetScoresRequest)
+            && __instance.GetType() != typeof(GetUserScoresRequest)
+            && __instance.GetType() != typeof(GetUserRankingsRequest)) return;
+        if (__instance is GetUserScoresRequest scores && scores.GetType().GetField("type", instance)!.GetValue(scores)?.ToString() is not ("Best" or "Recent")) return;
+        if (__result.Method != HttpMethod.Get
+            || !Uri.TryCreate(__result.Url, UriKind.Absolute, out var uri) || !NetworkPolicy.Allows(uri)
+            || !uri.AbsolutePath.StartsWith("/api/v2/", StringComparison.Ordinal) || uri.Query.Length != 0)
+            throw new InvalidOperationException("transfiguration_read_endpoint_invalid");
+        var scope = requests.GetValue(__instance, _ => snapshot());
+        __result.AddParameter("variant", variant(__instance, scope), RequestParameterType.Query);
     }
 
     private static void ScoresConstructorPrefix(GetScoresRequest __instance, IRulesetInfo ruleset, ref IEnumerable<IMod>? mods)

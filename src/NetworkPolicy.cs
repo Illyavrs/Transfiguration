@@ -66,8 +66,26 @@ internal static class NetworkPolicy
 
     internal static bool ResourcePrefix(string url, ref string __result)
     {
-        __result = Uri.TryCreate(url, UriKind.Absolute, out var uri) && Allows(uri) ? url : string.Empty;
+        var lookup = previewLookup(url);
+        __result = Uri.TryCreate(lookup, UriKind.Absolute, out var uri) && Allows(uri) ? lookup! : string.Empty;
         return false;
+    }
+
+    private static string? previewLookup(string? url)
+    {
+        // PreviewTrackManager constructs this address instead of using the API's
+        // preview_url. Translate only that exact lookup; HTTP destinations still
+        // require the captured private origin and never allow official traffic.
+        const string prefix = "https://b.ppy.sh/preview/";
+        const string suffix = ".mp3";
+        if (url is null || !url.StartsWith(prefix, StringComparison.Ordinal) || !url.EndsWith(suffix, StringComparison.Ordinal)) return url;
+        var digits = url.AsSpan(prefix.Length, url.Length - prefix.Length - suffix.Length);
+        if (digits.Length is 0 or > 10 || digits[0] is < '1' or > '9') return url;
+        foreach (var digit in digits)
+            if (digit is < '0' or > '9') return url;
+        if (!int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var setId) || setId <= 0) return url;
+        var origin = DiagnosticEndpoint;
+        return origin is null ? url : origin + "/api/v2/beatmapsets/" + setId.ToString(CultureInfo.InvariantCulture) + "/preview";
     }
 }
 

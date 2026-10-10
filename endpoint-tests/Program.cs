@@ -30,6 +30,13 @@ internal static class Program
         var previous = Environment.GetEnvironmentVariable(NetworkPolicy.EndpointEnvironmentName);
         try
         {
+#if ILLYAVERSE_FIXTURE
+            NetworkPolicy.Initialize();
+            require(NetworkPolicy.Website == "http://127.0.0.1:18376", "source-linked fixture uses its isolated loopback resource origin");
+            previewResources();
+            Console.WriteLine($"PASS {checks} source-linked fixture audio policy checks; no client, player data or network operations");
+            return 0;
+#else
             foreach (var (supplied, expected, port) in new (string, string, int)[]
             {
                 ("https://illya.test", "https://illya.test", 443),
@@ -78,6 +85,9 @@ internal static class Program
 
             require(!NetworkPolicy.Allows(new Uri("https://illya.test/oauth/token")), "uninitialized production policy permits no request");
             require(!ExternalBrowserPolicy.TryResolve("https://illya.test/beatmapsets/1#osu/1", out _), "uninitialized browser policy launches no destination");
+            var uninitializedPreview = "unchanged";
+            require(!NetworkPolicy.ResourcePrefix("https://b.ppy.sh/preview/2630282.mp3", ref uninitializedPreview) && uninitializedPreview == string.Empty,
+                "uninitialized resource lookup cannot translate a preview to an implicit deployment");
             Environment.SetEnvironmentVariable(NetworkPolicy.EndpointEnvironmentName, null);
             rejected(NetworkPolicy.Initialize, "server_endpoint_missing", "missing origin rejects without an implicit default");
             Environment.SetEnvironmentVariable(NetworkPolicy.EndpointEnvironmentName, "https://osu.ppy.sh");
@@ -104,12 +114,55 @@ internal static class Program
             require(!NetworkPolicy.ResourcePrefix("https://osu.ppy.sh/asset", ref resource) && resource == "", "official image destination is suppressed before lookup");
             require(!NetworkPolicy.ResourcePrefix(NetworkPolicy.Website + "/media/fixture", ref resource) && resource == NetworkPolicy.Website + "/media/fixture",
                 "selected deployment resource stays available");
+            previewResources();
             browserLinks();
             Console.WriteLine($"PASS {checks} source-linked production endpoint policy checks; no client, player data or network operations");
             return 0;
+#endif
         }
         catch (Exception exception) { Console.Error.WriteLine("FAIL endpoint_policy_fixture " + exception.GetType().Name); return 1; }
         finally { Environment.SetEnvironmentVariable(NetworkPolicy.EndpointEnvironmentName, previous); }
+    }
+
+    private static void previewResources()
+    {
+        foreach (var id in new[] { "1", "2630282", "2147483647" })
+        {
+            var source = "https://b.ppy.sh/preview/" + id + ".mp3";
+            var resolved = "unchanged";
+            var expected = NetworkPolicy.Website + "/api/v2/beatmapsets/" + id + "/preview";
+            require(!NetworkPolicy.ResourcePrefix(source, ref resolved) && resolved == expected && NetworkPolicy.Allows(new Uri(resolved)),
+                "canonical stock preview lookup resolves to the captured deployment and exact configured port");
+            require(!NetworkPolicy.Allows(new Uri(source)), "preview lookup translation never permits a direct official HTTP destination");
+            blocked(() => NetworkPolicy.Require(new Uri(source)), "direct official preview request stays synchronously blocked");
+        }
+        foreach (var source in new string?[]
+        {
+            null, "", "https://b.ppy.sh/preview/0.mp3", "https://b.ppy.sh/preview/01.mp3", "https://b.ppy.sh/preview/-1.mp3",
+            "https://b.ppy.sh/preview/+1.mp3", "https://b.ppy.sh/preview/2147483648.mp3", "https://b.ppy.sh/preview/999999999999999999999.mp3",
+            "http://b.ppy.sh/preview/1.mp3", "HTTPS://b.ppy.sh/preview/1.mp3", "https://B.PPY.SH/preview/1.mp3",
+            "https://b.ppy.sh:443/preview/1.mp3", "https://b.ppy.sh:8443/preview/1.mp3", "https://b.ppy.sh./preview/1.mp3",
+            "https://b.ppy.sh.evil.invalid/preview/1.mp3", "https://user:secret@b.ppy.sh/preview/1.mp3", "https://b.ppy.sh@other.example.test/preview/1.mp3",
+            "https://b.ppy.sh/preview/1.mp3?", "https://b.ppy.sh/preview/1.mp3?token=synthetic", "https://b.ppy.sh/preview/1.mp3#",
+            "https://b.ppy.sh/preview/1.mp3#fragment", "https://b.ppy.sh/preview/%31.mp3", "https://b.ppy.sh/preview/１.mp3",
+            "https://b.ppy.sh/preview/1.MP3", "https://b.ppy.sh/Preview/1.mp3", "https://b.ppy.sh/preview/.mp3",
+            "https://b.ppy.sh/preview/1.mp3/extra", "https://b.ppy.sh/preview//1.mp3", "https://b.ppy.sh/preview/../preview/1.mp3",
+            "https://b.ppy.sh/preview/%2e%2e/preview/1.mp3", "https://b.ppy.sh/preview\\1.mp3", "https://b.ppy.sh/preview/1.mp3\n",
+            " https://b.ppy.sh/preview/1.mp3", "https://b.ppy.sh/preview/ 1.mp3", "https://b.ppy.sh/covers/1.jpg",
+            "https://assets.ppy.sh/preview/1.mp3", "https://osu.ppy.sh/preview/1.mp3",
+        })
+        {
+            var resolved = "unchanged";
+            require(!NetworkPolicy.ResourcePrefix(source!, ref resolved) && resolved == string.Empty,
+                "noncanonical official preview and unrelated resource lookup stays suppressed without throwing");
+        }
+        var privatePreview = NetworkPolicy.Website + "/api/v2/beatmapsets/2630282/preview";
+        var unchanged = "unresolved";
+        require(!NetworkPolicy.ResourcePrefix(privatePreview, ref unchanged) && unchanged == privatePreview,
+            "a server-provided private preview URL remains unchanged");
+        using var handler = new SocketsHttpHandler { AllowAutoRedirect = false };
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://b.ppy.sh/preview/2630282.mp3");
+        blocked(() => NetworkPolicy.HttpSendPrefix(handler, request), "official preview bypassing resource lookup remains blocked before HTTP send");
     }
 
     private static void browserLinks()

@@ -125,6 +125,7 @@ internal static class SessionLogout
 
     private static void ExplicitLogout(IAPIProvider provider)
     {
+        SessionWelcome.ExplicitLogout(provider);
         try
         {
             if (provider.GetType() == typeof(APIAccess) && provider.Endpoints.APIUrl == NetworkPolicy.Api

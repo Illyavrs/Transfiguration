@@ -65,6 +65,12 @@ The script checks hashes and writes the production DLL, metadata and notices to
 `tools/transfiguration/artifacts/` without modifying the installation. Exclude
 stock assemblies and proof fixtures from distribution.
 
+The [manual CI producer](.github/workflows/build-production.yml) creates verified
+production input and separate provenance on a dedicated Windows runner. See
+[Release builds](https://github.com/Illyavrs/Illyaverse/blob/main/docs/launcher-release-builds.md)
+for source bindings, runner configuration and proof scope. Actual CI builds remain
+pending.
+
 ## Independent component updates
 
 The signed DLL channel uses

@@ -179,6 +179,7 @@ internal static class Guard
         _ = typeof(osu.Game.Rulesets.Transfiguration.BridgeRuleset).GetMethods();
         AccountConfigIsolation.VerifyContracts(dataRoot);
         SessionLogout.VerifyContracts(game);
+        SessionWelcome.VerifyContracts();
         RelaxContext.VerifyContracts();
         ClientStartupProgress.VerifyContracts(desktop, framework);
     }
@@ -193,6 +194,8 @@ internal static class Guard
         var scores = type(game, "osu.Game.Online.API.Requests.GetScoresRequest");
         patch(scores.GetConstructors().Single(), "ScoresConstructorPrefix", typeof(RelaxContext));
         patch(method(scores, "Equals", scores), "ScoresEqualsPrefix", typeof(RelaxContext));
+        foreach (var name in new[] { "GetScoresRequest", "GetUserScoresRequest", "GetUserRankingsRequest" })
+            patch(method(type(game, "osu.Game.Online.API.Requests." + name), "CreateWebRequest"), "ReadWebRequestPostfix", typeof(RelaxContext), postfix: true);
         var statistics = type(game, "osu.Game.Online.LocalUserStatisticsProvider");
         patch(statistics.GetConstructor(Type.EmptyTypes)!, "StatisticsConstructorPostfix", typeof(RelaxContext), postfix: true);
         patch(method(statistics, "GetStatisticsFor", type(game, "osu.Game.Rulesets.RulesetInfo")), "StatisticsGetPrefix", typeof(RelaxContext));
@@ -242,6 +245,7 @@ internal static class Guard
         patch(AccountConfigIsolation.PerformSave, "SavePostfix", typeof(AccountConfigIsolation), postfix: true);
         patchFinalizer(AccountConfigIsolation.PerformSave, "ScopeFinalizer", typeof(AccountConfigIsolation));
         patch(AccountConfigIsolation.ApiConstructor, "ApiConstructorPrefix", typeof(AccountConfigIsolation));
+        SessionWelcome.Install(harmony, AccountConfigIsolation.ApiConstructor);
         ClientStartupProgress.Install(patch);
         SessionLogout.Install(harmony, patched.Add);
     }
