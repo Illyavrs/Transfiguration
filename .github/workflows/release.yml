@@ -1,0 +1,209 @@
+name: Review and release Transfiguration component
+
+# The input artifact is produced and verified elsewhere. This workflow does not
+# acquire native assemblies, compile the bridge, or claim real client testing.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable component version (first updater release is 0.1.1 or later)
+        required: true
+        type: string
+      source_commit:
+        description: Reviewed full lowercase Transfiguration source commit
+        required: true
+        type: string
+      launcher_requirement:
+        description: Full stable SemVer comparators, for example >=0.1.0, <0.2.0
+        required: true
+        type: string
+      production_run_id:
+        description: Successful same-repository run for the exact source commit
+        required: true
+        type: string
+      production_artifact:
+        description: Existing artifact containing production/ and production-verification.json
+        required: true
+        type: string
+        default: transfiguration-verified-production
+      bridge_sha256:
+        description: Reviewed production DLL SHA-256 (lowercase)
+        required: true
+        type: string
+      source_compatibility_sha256:
+        description: Reviewed source compatibility.json SHA-256 (lowercase)
+        required: true
+        type: string
+      verification_sha256:
+        description: Reviewed immutable production-verification.json SHA-256
+        required: true
+        type: string
+      sign_release:
+        description: Sign after unsigned review; needs configured protected release environment
+        required: true
+        type: boolean
+        default: false
+      create_draft_release:
+        description: Create a new draft GitHub release from the signed output
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: transfiguration-component-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  COMPONENT_VERSION: ${{ inputs.version }}
+  COMPONENT_COMMIT: ${{ inputs.source_commit }}
+  COMPONENT_LAUNCHER_REQUIREMENT: ${{ inputs.launcher_requirement }}
+  COMPONENT_PRODUCTION_RUN_ID: ${{ inputs.production_run_id }}
+  COMPONENT_BRIDGE_SHA256: ${{ inputs.bridge_sha256 }}
+  COMPONENT_SOURCE_COMPATIBILITY_SHA256: ${{ inputs.source_compatibility_sha256 }}
+  COMPONENT_VERIFICATION_SHA256: ${{ inputs.verification_sha256 }}
+  TRANSFIGURATION_UPDATE_REPOSITORY: ${{ vars.TRANSFIGURATION_UPDATE_REPOSITORY }}
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate pinned input identities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module -e 'const e=process.env; if(!/^[0-9a-f]{40}$/.test(e.COMPONENT_COMMIT)||!/^[1-9][0-9]*$/.test(e.COMPONENT_PRODUCTION_RUN_ID)||e.TRANSFIGURATION_UPDATE_REPOSITORY!==e.GITHUB_REPOSITORY) process.exit(1);'
+          IFS=$'\t' read -r conclusion source repository < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$COMPONENT_PRODUCTION_RUN_ID" --jq '[.conclusion,.head_sha,.head_repository.full_name]|@tsv')
+          test "$conclusion" = success
+          test "$source" = "$COMPONENT_COMMIT"
+          test "$repository" = "$GITHUB_REPOSITORY"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_commit }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Check original publisher syntax and synthetic safety cases
+        run: |
+          node --check scripts/component-release.mjs
+          node --test scripts/component-release.test.mjs
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.production_artifact }}
+          path: ${{ runner.temp }}/verified-input
+          run-id: ${{ inputs.production_run_id }}
+          github-token: ${{ github.token }}
+      - name: Prepare unsigned review without signing credentials
+        run: |
+          node scripts/component-release.mjs --mode review \
+            --version "$COMPONENT_VERSION" \
+            --repository "$TRANSFIGURATION_UPDATE_REPOSITORY" \
+            --launcher-requirement "$COMPONENT_LAUNCHER_REQUIREMENT" \
+            --transfiguration-commit "$COMPONENT_COMMIT" \
+            --bridge-sha256 "$COMPONENT_BRIDGE_SHA256" \
+            --source-compatibility-sha256 "$COMPONENT_SOURCE_COMPATIBILITY_SHA256" \
+            --verification-file "$RUNNER_TEMP/verified-input/production-verification.json" \
+            --verification-sha256 "$COMPONENT_VERIFICATION_SHA256" \
+            --production-directory "$RUNNER_TEMP/verified-input/production" \
+            --output-directory "$RUNNER_TEMP/component-review"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transfiguration-component-review
+          path: ${{ runner.temp }}/component-review/*
+          if-no-files-found: error
+          retention-days: 30
+
+  sign:
+    if: ${{ inputs.sign_release }}
+    needs: review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Configure required reviewers on this environment before adding the key.
+    # Only this job receives the component's independent external signing key.
+    environment: transfiguration-release
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_commit }}
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.production_artifact }}
+          path: ${{ runner.temp }}/verified-input
+          run-id: ${{ inputs.production_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: transfiguration-component-review
+          path: ${{ runner.temp }}/component-review
+      - name: Sign exact reviewed production component
+        env:
+          TRANSFIGURATION_UPDATE_PUBLIC_KEY: ${{ vars.TRANSFIGURATION_UPDATE_PUBLIC_KEY }}
+          TRANSFIGURATION_UPDATE_SIGNING_KEY_PEM: ${{ secrets.TRANSFIGURATION_UPDATE_SIGNING_KEY_PEM }}
+        run: |
+          node scripts/component-release.mjs --mode sign \
+            --version "$COMPONENT_VERSION" \
+            --repository "$TRANSFIGURATION_UPDATE_REPOSITORY" \
+            --launcher-requirement "$COMPONENT_LAUNCHER_REQUIREMENT" \
+            --transfiguration-commit "$COMPONENT_COMMIT" \
+            --bridge-sha256 "$COMPONENT_BRIDGE_SHA256" \
+            --source-compatibility-sha256 "$COMPONENT_SOURCE_COMPATIBILITY_SHA256" \
+            --verification-file "$RUNNER_TEMP/verified-input/production-verification.json" \
+            --verification-sha256 "$COMPONENT_VERIFICATION_SHA256" \
+            --production-directory "$RUNNER_TEMP/verified-input/production" \
+            --output-directory "$RUNNER_TEMP/component-signed"
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import assert from 'node:assert/strict';
+          const root = process.env.RUNNER_TEMP;
+          const review = JSON.parse(readFileSync(`${root}/component-review/manifest.json`, 'utf8'));
+          const envelope = JSON.parse(readFileSync(`${root}/component-signed/updates.json`, 'utf8'));
+          assert.deepEqual(JSON.parse(Buffer.from(envelope.manifest, 'base64').toString('utf8')), review);
+          assert.deepEqual(readFileSync(`${root}/component-review/${review.asset}`), readFileSync(`${root}/component-signed/${review.asset}`));
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transfiguration-component-signed
+          path: ${{ runner.temp }}/component-signed/*
+          if-no-files-found: error
+          retention-days: 30
+      - name: Create a new draft release
+        if: ${{ inputs.create_draft_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # An existing tag could point at another commit; --target alone does
+          # not retarget it. Only the exact ref's confirmed HTTP 404 admits a new
+          # draft, and network, authorization, or other API failures abort.
+          if gh api --include "repos/$TRANSFIGURATION_UPDATE_REPOSITORY/git/ref/tags/v$COMPONENT_VERSION" > "$RUNNER_TEMP/component-tag-response.txt" 2> "$RUNNER_TEMP/component-tag-error.txt"; then
+            printf '%s\n' 'Release tag already exists; choose a new immutable version.' >&2
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import assert from 'node:assert/strict';
+          const response = readFileSync(`${process.env.RUNNER_TEMP}/component-tag-response.txt`, 'utf8');
+          assert.match(response.split(/\r?\n/, 1)[0], /^HTTP\/\S+ 404(?: |$)/, 'Could not confirm that the exact release tag is absent.');
+          const body = response.slice(response.search(/\r?\n\r?\n/) + (response.includes('\r\n\r\n') ? 4 : 2));
+          assert.equal(JSON.parse(body).message, 'Not Found', 'Unexpected GitHub tag lookup response.');
+          NODE
+          # gh release create also fails for an existing release. There is no
+          # upload --clobber path; the draft awaits separate human publication.
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          writeFileSync(`${process.env.RUNNER_TEMP}/component-release-notes.txt`, 'Independent Transfiguration component update. The signed feed binds the exact production bridge, native compatibility metadata, source commit, and ten-file archive. Browser policy and pinned UI metadata proofs are recorded; native GUI and real login verification remain pending human testing.\n');
+          NODE
+          gh release create "v$COMPONENT_VERSION" \
+            "$RUNNER_TEMP/component-signed/Transfiguration-$COMPONENT_VERSION-windows-x64.zip" \
+            "$RUNNER_TEMP/component-signed/updates.json" \
+            "$RUNNER_TEMP/component-signed/release-review.json" \
+            --repo "$TRANSFIGURATION_UPDATE_REPOSITORY" --target "$COMPONENT_COMMIT" \
+            --title "Transfiguration $COMPONENT_VERSION" --draft \
+            --notes-file "$RUNNER_TEMP/component-release-notes.txt"

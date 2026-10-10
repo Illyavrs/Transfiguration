@@ -53,6 +53,27 @@ patch 與重複不合法點擊，僅使用 managed fixture，沒有呼叫 shell 
 .NET 10.0.12，不載入 game／framework／Realm assemblies、不安裝全部 guards、
 不建立測試資料目錄或 API listener，也不呼叫 shell；同樣不代表原生按鈕實測。
 
+## 登出與私服工作階段
+
+stock lazer 的 `APIAccess.Logout` 只清除本機 OAuth，不會向伺服器撤銷工作階段。
+橋接只改寫支援版本的登入面板與二階段登入表單中四個明確的 UI 登出位置，
+讀取當下 `OAuth.Token.Value.AccessToken` 後，背景送出一次
+`DELETE /api/v2/oauth/tokens/current`，並立即執行原生本機登出。讀取不會經過
+可能 refresh 的 `APIAccess.AccessToken` getter，也不讀取或傳送 refresh token。
+
+請求只送往本次固定的私服 origin，三秒逾時、無 cookies、無 redirects 或重試。
+網路失敗不會阻止本機登出。伺服器只撤銷這次 access token 對應的工作階段；
+已輪替的舊 token 不會刪除新的一代，也不影響其他裝置。自動 401、refresh 失敗、
+伺服器斷線與一般遊戲關閉保留原本的 stock 行為，不會被當作玩家按下登出。
+
+`session-tests` 使用合成 transport，驗證目的地、64 位小寫十六進位 access token、
+空 body、單次 Bearer、錯誤與逾時；沒有網路 I/O。另有
+`--production-logout-contracts <production-dll> <native-root> <bound-receipt>`
+模式，只讀先前 receipt 已綁定 hash 的 stock DLL metadata，驗證四處 IL 位置、
+改寫與 labels／exception blocks，並用合成 provider 確認 helper 不讀取 API getter。
+此模式不建立 Game、APIAccess、GameHost、Storage 或 Realm database，不安裝
+全部 guards，亦不執行 UI；真實登出仍需玩家測試。
+
 帳號隔離 proof 使用真正的 stock `NativeStorage`、`WrappedStorage`、`OsuConfigManager` 和
 `APIAccess` 建構子，資料僅有合成的有效／過期官方 token 與圖譜資源／Realm
 標記檔。它驗證原生共用偏好的載入、修改、存檔和重載，官方帳號行保持

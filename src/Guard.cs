@@ -178,6 +178,7 @@ internal static class Guard
         _ = method(type(desktop, "osu.Desktop.OsuGameDesktop"), "GetStorageForStableInstall");
         _ = typeof(osu.Game.Rulesets.Transfiguration.BridgeRuleset).GetMethods();
         AccountConfigIsolation.VerifyContracts(dataRoot);
+        SessionLogout.VerifyContracts(game);
         RelaxContext.VerifyContracts();
         ClientStartupProgress.VerifyContracts(desktop, framework);
     }
@@ -242,6 +243,7 @@ internal static class Guard
         patchFinalizer(AccountConfigIsolation.PerformSave, "ScopeFinalizer", typeof(AccountConfigIsolation));
         patch(AccountConfigIsolation.ApiConstructor, "ApiConstructorPrefix", typeof(AccountConfigIsolation));
         ClientStartupProgress.Install(patch);
+        SessionLogout.Install(harmony, patched.Add);
     }
 
     private static bool EndpointsPrefix(ref object __result)

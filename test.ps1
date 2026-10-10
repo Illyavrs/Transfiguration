@@ -18,6 +18,8 @@ function Invoke-ProofCommand([string]$Command, [string[]]$CommandArgs) {
 
 Invoke-ProofCommand 'dotnet' @('restore',(Join-Path $proofRoot 'endpoint-tests/EndpointPolicy.csproj'),'--source',(Join-Path $proofRoot 'endpoint-tests'),'--ignore-failed-sources')
 Invoke-ProofCommand 'dotnet' @('run','--project',(Join-Path $proofRoot 'endpoint-tests/EndpointPolicy.csproj'),'-c','Release','--no-restore')
+Invoke-ProofCommand 'dotnet' @('restore',(Join-Path $proofRoot 'session-tests/SessionRevocation.csproj'),'--source',(Join-Path $proofRoot 'session-tests'),'--ignore-failed-sources')
+Invoke-ProofCommand 'dotnet' @('run','--project',(Join-Path $proofRoot 'session-tests/SessionRevocation.csproj'),'-c','Release','--no-restore')
 Invoke-ProofCommand 'dotnet' @('restore',(Join-Path $proofRoot 'diagnostic-tests/StartupDiagnostics.csproj'),'--source',(Join-Path $proofRoot 'diagnostic-tests'),'--ignore-failed-sources')
 Invoke-ProofCommand 'dotnet' @('run','--project',(Join-Path $proofRoot 'diagnostic-tests/StartupDiagnostics.csproj'),'-c','Release','--no-restore')
 Invoke-ProofCommand 'dotnet' @('run','--project',(Join-Path $proofRoot 'diagnostic-tests/StartupDiagnostics.csproj'),'-c','Release','--no-restore','--','--stock-contracts',$proofNative)

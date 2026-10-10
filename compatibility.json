@@ -63,7 +63,10 @@
     "GetScoresRequest.Equals(GetScoresRequest)",
     "LocalUserStatisticsProvider.ctor",
     "LocalUserStatisticsProvider.GetStatisticsFor",
-    "LocalUserStatisticsProvider.RefetchStatistics"
+    "LocalUserStatisticsProvider.RefetchStatistics",
+    "LoginPanel explicit SignOut UI actions:three-instruction delegate and direct call",
+    "SecondFactorAuthForm explicit sign-out UI callbacks",
+    "APIAccess.authentication:passive OAuth.Token.Value.AccessToken capture"
   ],
   "verification": {
     "native_metadata_and_endpoints": "passed",
@@ -79,6 +82,7 @@
     "endpoint_bound_private_auth": "passed_source_linked_and_headless_real_config",
     "configurable_https_origin": "passed_source_linked",
     "private_credential_save_logout_remember_flags": "passed_headless_native_handlers_worker_intercepted",
+    "explicit_ui_current_session_revocation": "pending_human_test",
     "real_api_worker_refresh_and_login": "pending_human_test",
     "native_gui_and_login": "pending_human_test"
   }
