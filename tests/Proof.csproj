@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <UseAppHost>false</UseAppHost>
-    <NativeRoot Condition="'$(NativeRoot)' == ''">$(LOCALAPPDATA)/osulazer/current</NativeRoot>
+    <NativeRoot Condition="'$(NativeRoot)' == '' And '$(OS)' == 'Windows_NT'">$(LOCALAPPDATA)/osulazer/current</NativeRoot>
   </PropertyGroup>
   <ItemGroup><FrameworkReference Include="Microsoft.AspNetCore.App" /></ItemGroup>
   <ItemGroup>

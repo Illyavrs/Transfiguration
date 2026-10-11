@@ -23,13 +23,24 @@ internal static class ClientStartupProgress
     private sealed record WindowContract(Type ActualType, Type BaseType, MethodInfo Create, MethodInfo Draw, MethodInfo Exists);
     private static readonly List<WindowContract> windows = new();
 
-    internal static void VerifyContracts(Assembly desktop, Assembly framework)
+    // The game host and the concrete SDL window types are chosen by the operating system the
+    // stock client was built for. Windows overrides Window.Create in its own window type; the
+    // Linux window types inherit it unchanged, so the base method is the only possible target.
+    private sealed record PlatformTypes(string Host, string Namespace, string WindowSuffix, bool OverridesCreate);
+    private static readonly PlatformTypes windowsTypes = new("osu.Framework.Platform.Windows.WindowsGameHost", "osu.Framework.Platform.Windows", "WindowsWindow", true);
+    private static readonly PlatformTypes linuxTypes = new("osu.Framework.Platform.Linux.LinuxGameHost", "osu.Framework.Platform.Linux", "LinuxWindow", false);
+
+    internal static void VerifyContracts(Assembly desktop, Assembly framework) => VerifyContracts(desktop, framework, !OperatingSystem.IsWindows());
+
+    // The explicit platform lets metadata-only proofs exercise the other profile on any host.
+    internal static void VerifyContracts(Assembly desktop, Assembly framework, bool linux)
     {
+        var platform = linux ? linuxTypes : windowsTypes;
         var program = type(desktop, "osu.Desktop.Program");
         var factory = type(framework, "osu.Framework.Host");
         var gameHost = type(framework, "osu.Framework.Platform.GameHost");
         var desktopHost = type(framework, "osu.Framework.Platform.DesktopGameHost");
-        hostType = type(framework, "osu.Framework.Platform.Windows.WindowsGameHost");
+        hostType = type(framework, platform.Host);
         var renderer = type(framework, "osu.Framework.Graphics.Rendering.IRenderer");
         var surface = type(framework, "osu.Framework.Platform.GraphicsSurfaceType");
         main = method(program, "Main", typeof(void), true, typeof(string[]));
@@ -46,16 +57,29 @@ internal static class ClientStartupProgress
         foreach (var backend in new[] { "SDL3", "SDL2" })
         {
             var baseType = type(framework, $"osu.Framework.Platform.{backend}.{backend}Window");
-            var actualType = type(framework, $"osu.Framework.Platform.Windows.{backend}WindowsWindow");
+            var actualType = type(framework, $"{platform.Namespace}.{backend}{platform.WindowSuffix}");
             var create = method(baseType, "Create", typeof(void), false);
             var draw = method(baseType, "OnDraw", typeof(void), false);
             var exists = method(baseType, "get_Exists", typeof(bool), false);
             var firstDraw = baseType.GetField("firstDraw", declared);
-            var actualCreate = method(actualType, "Create", typeof(void), false);
-            if (!baseType.IsAssignableFrom(actualType) || !create.IsVirtual || actualCreate.GetBaseDefinition() != create
+            if (!baseType.IsAssignableFrom(actualType) || !create.IsVirtual || actualType.IsAbstract
                 || firstDraw?.FieldType != typeof(bool) || !firstDraw.IsPrivate || firstDraw.IsStatic) reject();
+            if (platform.OverridesCreate)
+            {
+                if (method(actualType, "Create", typeof(void), false).GetBaseDefinition() != create) reject();
+            }
+            else if (!inheritsCreate(actualType, baseType)) reject();
             windows.Add(new(actualType, baseType, create, draw, exists));
         }
+    }
+
+    // No type between the concrete window and its SDL base may override Create, so the base
+    // method observed by the postfix is exactly the one the concrete window executes.
+    private static bool inheritsCreate(Type actualType, Type baseType)
+    {
+        for (var current = actualType; current is not null && current != baseType; current = current.BaseType)
+            if (current.GetMethod("Create", declared & ~BindingFlags.Static, null, Type.EmptyTypes, null) is not null) return false;
+        return true;
     }
 
     internal static void Install(Action<MethodBase, string, Type?, bool> patch)

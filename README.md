@@ -7,6 +7,7 @@
 <p align="center">
   <a href="Transfiguration.csproj"><img src="https://img.shields.io/badge/C%23-.NET_10-512BD4?style=flat-square" alt="C# and .NET 10"></a>
   <a href="compatibility.json"><img src="https://img.shields.io/badge/Platform-Windows_x64-0078D4?style=flat-square" alt="Windows x64"></a>
+  <a href="compatibility.linux-x64.json"><img src="https://img.shields.io/badge/Linux_x64-experimental-lightgrey?style=flat-square" alt="Linux x64 experimental"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square" alt="MIT License"></a>
 </p>
 
@@ -70,6 +71,28 @@ production input and separate provenance on a dedicated Windows runner. See
 [Release builds](https://github.com/Illyavrs/Illyaverse/blob/main/docs/launcher-release-builds.md)
 for source bindings, runner configuration and proof scope. Actual CI builds remain
 pending.
+
+## Linux (lazer only, experimental)
+
+The bridge also compiles for Linux x64 against the official osu!lazer
+`2026.1005.1-tachyon` AppImage (`usr/bin`). [`compatibility.linux-x64.json`](compatibility.linux-x64.json)
+pins that build's own assembly hashes, which equal the constants in Kaleidoscope.
+Platform code is split at run time: Windows keeps its handle-based file guards, and Linux uses
+`O_NOFOLLOW` descriptors opened relative to a verified directory chain, regular-file checks,
+bounded reads and `fsync` plus `rename(2)` replacement (account store mode `0600`). The startup
+progress observers pick `LinuxGameHost` with `SDL3LinuxWindow`/`SDL2LinuxWindow` instead of the
+Windows types.
+
+```sh
+sh tools/transfiguration/build.sh "<extracted-appimage>/usr/bin"   # artifacts/linux-x64/
+sh tools/transfiguration/test.sh  "<extracted-appimage>/usr/bin"   # unit and metadata proofs
+```
+
+**Status:** implemented, compiled, unit-tested on a Linux kernel (WSL2) and checked against the
+stock Linux assemblies as metadata only. It has never run inside a real Linux lazer client:
+login, refresh, native GUI, gameplay and logout, and the network and config guards under the
+Linux runtime, are `pending_human_test`. Only x64 glibc is supported. Component signing and the
+release workflows still produce Windows x64 packages only.
 
 ## Independent component updates
 

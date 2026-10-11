@@ -200,3 +200,53 @@ test('review mode never consults signing keys and rejects invalid release inputs
   for (const key of ['TRANSFIGURATION_UPDATE_SIGNING_KEY_PEM', 'TRANSFIGURATION_UPDATE_SIGNING_KEY_FILE', 'TRANSFIGURATION_UPDATE_PUBLIC_KEY']) Object.defineProperty(environment, key, { get() { throw new Error('test key access is forbidden'); } });
   await assert.rejects(() => prepareComponentRelease({ ...manifestInput(), mode: 'review', bridgeSha256: bridgeHash, sourceCompatibilitySha256: digest('source'), sourceRoot: '' }, environment), /Missing release path/);
 });
+
+const linuxCompatibility = () => ({
+  ...compatibility(), platform: 'linux-x64',
+  verification: {
+    native_metadata_and_endpoints: 'passed_static_metadata_only', http_websocket_and_redirects: 'pending_human_test',
+    explicit_ui_current_session_revocation: 'pending_human_test', real_api_worker_refresh_and_login: 'pending_human_test',
+    native_gui_and_login: 'pending_human_test', linux_auth_file_guard: 'passed_unit_wsl2_synthetic_files',
+  },
+});
+
+test('linux-x64 manifests name their own platform and unknown platforms stay rejected', () => {
+  const value = buildManifest({ ...manifestInput(), platform: 'linux-x64' });
+  assert.equal(value.platform, 'linux-x64'); assert.equal(value.asset, 'Transfiguration-0.1.1-linux-x64.zip');
+  assert.equal(buildManifest(manifestInput()).platform, 'windows-x64');
+  for (const platform of ['linux-arm64', 'darwin-arm64', 'Linux-x64', '']) assert.throws(() => buildManifest({ ...manifestInput(), platform }));
+  const identity = ephemeralIdentity();
+  assert.equal(JSON.parse(Buffer.from(createSignedEnvelope(value, identity.pem, identity.raw).manifest, 'base64')).platform, 'linux-x64');
+  assert.throws(() => createSignedEnvelope({ ...value, asset: 'Transfiguration-0.1.1-windows-x64.zip' }, identity.pem, identity.raw));
+});
+
+test('linux-x64 compatibility needs qualified passes and keeps real-client proofs pending', () => {
+  const artifact = { ...security(), sha256: bridgeHash }, original = linuxCompatibility();
+  validateProductionMetadata(artifact, original, bridgeHash);
+  const withVerification = (changes) => ({ ...original, verification: { ...original.verification, ...changes } });
+  for (const changed of [
+    withVerification({ native_metadata_and_endpoints: 'passed' }), withVerification({ http_websocket_and_redirects: 'passed' }),
+    withVerification({ native_metadata_and_endpoints: 'pending_human_test' }), withVerification({ native_gui_and_login: 'passed_unit_wsl2' }),
+    withVerification({ real_api_worker_refresh_and_login: 'passed_static_metadata_only' }), withVerification({ explicit_ui_current_session_revocation: 'passed' }),
+    { ...original, verification: Object.fromEntries(Object.entries(original.verification).filter(([name]) => name !== 'explicit_ui_current_session_revocation')) },
+    { ...original, platform: 'windows-x64' }, { ...original, platform: 'linux-arm64' },
+  ]) assert.throws(() => validateProductionMetadata(artifact, changed, bridgeHash));
+  // The Windows rules are unchanged: a qualified-only verification block does not satisfy them.
+  assert.throws(() => validateProductionMetadata(artifact, { ...original, platform: 'windows-x64' }, bridgeHash));
+});
+
+test('the checked-in linux-x64 manifest is valid, distinct from Windows and honest about unverified proofs', async () => {
+  const root = resolve(import.meta.dirname, '..');
+  const { readFile } = await import('node:fs/promises');
+  const linux = readStrictJson(await readFile(join(root, 'compatibility.linux-x64.json')), 'linux compatibility');
+  const windows = readStrictJson(await readFile(join(root, 'compatibility.json')), 'windows compatibility');
+  assert.equal(linux.platform, 'linux-x64');
+  // The validator's SECURITY_FIELDS carry a synthetic endpoint; the real product endpoint is substituted
+  // so only the platform policy, hashes and verification states of the checked-in file are exercised.
+  validateProductionMetadata({ ...security(), sha256: bridgeHash }, { ...linux, default_endpoint: security().default_endpoint }, bridgeHash);
+  for (const name of NATIVE_ASSEMBLIES) assert.notEqual(linux.assemblies[name].sha256, windows.assemblies[name].sha256);
+  for (const name of ['osu.Game.dll', 'osu.Framework.dll', 'osu!.dll']) assert.equal(linux.assemblies[name].version, windows.assemblies[name].version);
+  assert.deepEqual(linux.contracts, windows.contracts);
+  assert(Object.values(linux.verification).every((status) => status !== 'passed'));
+  assert.equal(nativeClientVersion(linux), '2026.1005.1');
+});

@@ -34,7 +34,7 @@ internal static class Guard
             controlRoot = absoluteDirectory(required("ILLYAVERSE_LAZER_CONTROL_ROOT", "control_root_missing"));
             validateDataRoot();
             var readyFile = canonicalPath(required("ILLYAVERSE_LAZER_READY_FILE", "ready_file_missing"));
-            if (!string.Equals(readyFile, Path.Combine(controlRoot, $"session-ready-{session}.json"), StringComparison.OrdinalIgnoreCase)) fail("ready_path_invalid");
+            if (!string.Equals(readyFile, Path.Combine(controlRoot, $"session-ready-{session}.json"), ClientAssemblyPath.Comparison)) fail("ready_path_invalid");
             if (File.Exists(readyFile)) fail("ready_file_exists");
             rejectReparse(dataRoot);
             rejectReparse(controlRoot);
@@ -96,14 +96,14 @@ internal static class Guard
         if (!Path.GetFileName(dataRoot).StartsWith("data-transfiguration-proof", StringComparison.Ordinal)) fail("fixture_data_path_invalid");
         if (!Path.GetFileName(controlRoot).StartsWith("data-transfiguration-proof", StringComparison.Ordinal)) fail("fixture_control_path_invalid");
 #else
-        var expected = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Illyaverse", "Kaleidoscope");
-        if (!string.Equals(controlRoot, expected, StringComparison.OrdinalIgnoreCase)) fail("control_path_invalid");
+        var expected = Path.Combine(ClientAssemblyPath.LocalDataHome(), "Illyaverse", "Kaleidoscope");
+        if (!string.Equals(controlRoot, expected, ClientAssemblyPath.Comparison)) fail("control_path_invalid");
 #endif
         // Portable lazer legitimately stores its library beside its executable. Only the
         // launcher control directory is independent; the resolved library is reused.
-        if (string.Equals(dataRoot, controlRoot, StringComparison.OrdinalIgnoreCase)
-            || dataRoot.StartsWith(controlRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-            || controlRoot.StartsWith(dataRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) fail("control_data_overlap");
+        if (string.Equals(dataRoot, controlRoot, ClientAssemblyPath.Comparison)
+            || dataRoot.StartsWith(controlRoot + Path.DirectorySeparatorChar, ClientAssemblyPath.Comparison)
+            || controlRoot.StartsWith(dataRoot + Path.DirectorySeparatorChar, ClientAssemblyPath.Comparison)) fail("control_data_overlap");
     }
 
     private static void rejectReparse(string path)
@@ -156,11 +156,12 @@ internal static class Guard
     private static void verifyContracts()
     {
         // This allowlist is updated only after the isolated contract and transport proofs pass.
-        requireAssembly(game, "2026.1005.1.0", "AD9527E411111CB4B4045C76DF61C3474FD872A04AF73160C05D24E44A588249");
-        requireAssembly(framework, "2026.1005.0.0", "93B62F61C72539ED6FDB3C8EBA18D276A74DE8E1C094280B2531F5A76CAEA528");
-        requireAssembly(desktop, "2026.1005.1.0", "18AE9BB6BB441E9A654AC72C859F527041BDE52E5DCE4109F8D9074584FA57A4");
-        requireAssembly(typeof(SocketsHttpHandler).Assembly, "10.0.0.0", "B98ED0CB80DD54C33FC049F33AF5448710752155BBD5CC8CBCD932E01F066801");
-        requireAssembly(typeof(ClientWebSocket).Assembly, "10.0.0.0", "F308A69B9EE1AC982F53D1D94374F4972A7E3C700742901FF7C2BBFB570019D2");
+        var profile = ClientProfile.Current;
+        requireAssembly(game, ClientProfile.GameVersion, profile.GameSha256);
+        requireAssembly(framework, ClientProfile.FrameworkVersion, profile.FrameworkSha256);
+        requireAssembly(desktop, ClientProfile.EntryVersion, profile.EntrySha256);
+        requireAssembly(typeof(SocketsHttpHandler).Assembly, ClientProfile.NetworkVersion, profile.HttpSha256);
+        requireAssembly(typeof(ClientWebSocket).Assembly, ClientProfile.NetworkVersion, profile.WebSocketsSha256);
         if (Environment.Version != new Version(10, 0, 12)) fail("runtime_version_unverified");
         var apiVersion = type(game, "osu.Game.Rulesets.Ruleset").GetField("CURRENT_RULESET_API_VERSION", BindingFlags.Public | BindingFlags.Static)?.GetRawConstantValue();
         if (!Equals(apiVersion, "2026.818.0")) fail("ruleset_api_incompatible");

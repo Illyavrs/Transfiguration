@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-    <NativeRoot Condition="'$(NativeRoot)' == ''">$(LOCALAPPDATA)/osulazer/current</NativeRoot>
+    <NativeRoot Condition="'$(NativeRoot)' == '' And '$(OS)' == 'Windows_NT'">$(LOCALAPPDATA)/osulazer/current</NativeRoot>
     <DefineConstants Condition="'$(Fixture)' == 'true'">$(DefineConstants);ILLYAVERSE_FIXTURE</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
@@ -18,4 +18,8 @@
     <Reference Include="osu.Framework"><HintPath>$(NativeRoot)/osu.Framework.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Realm"><HintPath>$(NativeRoot)/Realm.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
+  <!-- Linux has no conventional install directory: pass the extracted lazer folder (AppImage usr/bin). -->
+  <Target Name="RequireNativeRoot" BeforeTargets="ResolveAssemblyReferences;CoreCompile" Condition="'$(NativeRoot)' == ''">
+    <Error Text="NativeRoot is not set. Pass -p:NativeRoot=&lt;directory holding osu.Game.dll, osu.Framework.dll and Realm.dll&gt;." />
+  </Target>
 </Project>

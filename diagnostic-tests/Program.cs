@@ -17,7 +17,9 @@ internal static class Program
     public static int Main(string[] args)
     {
         if (args is ["--stock-contracts", var installation]) return StockProgressContracts.Run(installation);
-        if (!OperatingSystem.IsWindows()) { Console.WriteLine("SKIP Windows directory-handle proof requires Windows"); return 2; }
+        if (args is ["--stock-contracts", var stock, var platform]) return StockProgressContracts.Run(stock, platform);
+        if (OperatingSystem.IsLinux()) return LinuxDiagnosticProof.Run();
+        if (!OperatingSystem.IsWindows()) { Console.WriteLine("SKIP the startup diagnostic proof requires Windows or Linux"); return 2; }
         LaunchState.Active = false;
         var previous = environment.ToDictionary(key => key, Environment.GetEnvironmentVariable);
         Environment.SetEnvironmentVariable("ILLYAVERSE_LAZER_SERVER_ENDPOINT", "https://illya.test");

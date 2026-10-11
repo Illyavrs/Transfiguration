@@ -111,7 +111,7 @@ internal static class AccountConfigIsolation
         var scope = current;
         if (scope is null || scope.Saving) return true;
         if (!string.Equals(ClientAssemblyPath.Canonical(__instance.GetFullPath(__0)),
-                ClientAssemblyPath.Canonical(Path.Combine(libraryRoot, "game.ini")), StringComparison.OrdinalIgnoreCase)) return true;
+                ClientAssemblyPath.Canonical(Path.Combine(libraryRoot, "game.ini")), ClientAssemblyPath.Comparison)) return true;
         if (__1 != FileAccess.Read || __2 != FileMode.OpenOrCreate) fail("config_load_unverified");
         var account = AuthConfigFiles.ReadAccount(libraryRoot, NetworkPolicy.Website);
         var shared = AuthConfigFiles.Partition(AuthConfigFiles.Read(libraryRoot, "game.ini"), accountKey);
@@ -178,7 +178,7 @@ internal static class AccountConfigIsolation
     private static void requireStorage(Storage? storage)
     {
         if (storage is null || !string.Equals(ClientAssemblyPath.Canonical(storage.GetFullPath(".")),
-                libraryRoot, StringComparison.OrdinalIgnoreCase)) fail("config_storage_unverified");
+                libraryRoot, ClientAssemblyPath.Comparison)) fail("config_storage_unverified");
     }
 
     [DoesNotReturn]

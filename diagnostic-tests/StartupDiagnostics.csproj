@@ -12,11 +12,14 @@
     <Compile Include="../src/SafeStartupDiagnostic.cs" Link="SafeStartupDiagnostic.cs" />
     <Compile Include="../src/StartupHook.cs" Link="StartupHook.cs" />
     <Compile Include="../src/ClientAssemblyPath.cs" Link="ClientAssemblyPath.cs" />
+    <Compile Include="../src/ClientProfile.cs" Link="ClientProfile.cs" />
+    <Compile Include="../src/LinuxNative.cs" Link="LinuxNative.cs" />
     <Compile Include="../src/ClientStartupProgress.cs" Link="ClientStartupProgress.cs" />
     <Compile Include="../src/LaunchState.cs" Link="LaunchState.cs" />
     <Compile Include="../src/NetworkPolicy.cs" Link="NetworkPolicy.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="StockProgressContracts.cs" />
+    <Compile Include="LinuxDiagnosticProof.cs" />
     <Compile Include="StartupProgressProof.cs" />
   </ItemGroup>
 </Project>

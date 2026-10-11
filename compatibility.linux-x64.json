@@ -1,0 +1,96 @@
+{
+  "protocol": 1,
+  "artifact": "osu.Game.Rulesets.Transfiguration.dll",
+  "default_endpoint": "https://shdcloud.top",
+  "endpoint_mode": "https_origin_per_session",
+  "configurable_endpoint": true,
+  "private_auth_filename": "auth.illyaverse.json",
+  "shared_game_preferences": true,
+  "fixture": false,
+  "platform": "linux-x64",
+  "runtime": "10.0.12",
+  "ruleset_api": "2026.818.0",
+  "harmony": "2.4.2",
+  "assemblies": {
+    "osu.Game.dll": {
+      "version": "2026.1005.1.0",
+      "sha256": "D2B1B9D93801B22465252EC95A60FD398F6AAD6EF117CD5ED9846BC9922BCE86"
+    },
+    "osu.Framework.dll": {
+      "version": "2026.1005.0.0",
+      "sha256": "3D49CA53B034FD93010456D3B7156D9E7FD2DC661181AA61BF55B307AB4D6280"
+    },
+    "osu!.dll": {
+      "version": "2026.1005.1.0",
+      "sha256": "1A03472241C2B08E62E91BB235CE4BBF7706E611DA29B3869F4C9033BDB1AFC2"
+    },
+    "System.Net.Http.dll": {
+      "version": "10.0.0.0",
+      "sha256": "E8BEEB63DB39E7D540AA711C701860C5DDB8826F2BFFF62AF2ABFA74EAA7A055"
+    },
+    "System.Net.WebSockets.Client.dll": {
+      "version": "10.0.0.0",
+      "sha256": "F0AE347894788710AEC8B5A03BB42A00CCC1520DFB42E34350CBBE7D5D619235"
+    }
+  },
+  "contracts": [
+    "OsuGameBase.CreateEndpoints",
+    "Host.GetSuitableDesktopHost",
+    "DesktopGameHost.GetDefaultGameStorage",
+    "OsuGameDesktop.GetStorageForStableInstall",
+    "RulesetStore.addRuleset",
+    "DesktopGameHost.OpenUrlExternally",
+    "OsuStorage.CustomStoragePath",
+    "OsuStorage.TryChangeToCustomStorage",
+    "OsuStorage.ChangeDataPath",
+    "OsuGameBase.MigrateUserData",
+    "IniConfigManager<OsuSetting>.PerformLoad:auth-only stream overlay",
+    "IniConfigManager<OsuSetting>.PerformSave:shared preferences and private auth partition",
+    "NativeStorage.GetStream:scoped game.ini auth filtering",
+    "Storage.CreateFileSafely:scoped native preference serialization",
+    "OsuConfigManager.ctor(Storage):shared preferences and private auth before API",
+    "SocketsHttpHandler.ctor",
+    "HttpClientHandler.ctor",
+    "SocketsHttpHandler.Send",
+    "SocketsHttpHandler.SendAsync",
+    "ClientWebSocket.ConnectAsync(Uri,CancellationToken)",
+    "ClientWebSocket.ConnectAsync(Uri,HttpMessageInvoker,CancellationToken)",
+    "TrustedDomainOnlineStore.GetLookupUrl",
+    "APIAccess.ctor(OsuGameBase,OsuConfigManager,EndpointConfiguration,string)",
+    "APIRequest.ctor",
+    "APIRequest.Uri",
+    "GetScoresRequest.ctor",
+    "GetScoresRequest.Equals(GetScoresRequest)",
+    "GetScoresRequest.CreateWebRequest:query-list variant partition",
+    "GetUserScoresRequest.CreateWebRequest:query-list variant partition",
+    "GetUserRankingsRequest.CreateWebRequest:query-list variant partition",
+    "LocalUserStatisticsProvider.ctor",
+    "LocalUserStatisticsProvider.GetStatisticsFor",
+    "LocalUserStatisticsProvider.RefetchStatistics",
+    "LoginPanel explicit SignOut UI actions:three-instruction delegate and direct call",
+    "SecondFactorAuthForm explicit sign-out UI callbacks",
+    "APIAccess.authentication:passive OAuth.Token.Value.AccessToken capture"
+  ],
+  "verification": {
+    "native_metadata_and_endpoints": "passed_static_metadata_only",
+    "http_websocket_and_redirects": "pending_human_test",
+    "mandatory_bootstrap_before_headless_main": "pending_human_test",
+    "production_destination_policy": "passed_unit_wsl2_source_linked_policy_only",
+    "rx_native_request_context": "pending_human_test",
+    "rx_native_parameterized_request_builders": "pending_human_test",
+    "rx_statistics_generation_cache": "pending_human_test",
+    "shared_existing_library_storage": "pending_human_test",
+    "auth_only_before_api_constructor": "pending_human_test",
+    "shared_game_preferences": "pending_human_test",
+    "official_auth_byte_preservation": "pending_human_test",
+    "endpoint_bound_private_auth": "pending_human_test",
+    "configurable_https_origin": "pending_human_test",
+    "private_credential_save_logout_remember_flags": "pending_human_test",
+    "explicit_ui_current_session_revocation": "pending_human_test",
+    "real_api_worker_refresh_and_login": "pending_human_test",
+    "native_gui_and_login": "pending_human_test",
+    "linux_stock_startup_progress_contracts": "passed_static_metadata_only",
+    "linux_auth_file_guard": "passed_unit_wsl2_synthetic_files",
+    "linux_startup_diagnostic_sidecar": "passed_unit_wsl2_synthetic_files"
+  }
+}

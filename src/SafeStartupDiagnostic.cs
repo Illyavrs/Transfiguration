@@ -64,6 +64,7 @@ internal static class SafeStartupDiagnostic
         try
         {
             if (!tryDestination(suffix, out var session, out var control, out var destination)) return false;
+            if (!OperatingSystem.IsWindows()) return publishLinux(control, destination, payloadFactory, session);
             using var directories = lockAncestors(control);
             if (entryExists(destination)) return false;
             var payload = payloadFactory(session);
@@ -114,7 +115,7 @@ internal static class SafeStartupDiagnostic
         destination = string.Empty;
         if (suffix is not ("failure" or "progress-original_main_entered" or "progress-game_host_created" or "progress-game_host_run_entered"
             or "progress-renderer_initializing" or "progress-renderer_initialized" or "progress-window_created" or "progress-first_successful_draw")) return false;
-        if (!OperatingSystem.IsWindows() || session.Length != 64
+        if (!(OperatingSystem.IsWindows() || OperatingSystem.IsLinux()) || session.Length != 64
             || !session.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f')) return false;
         var supplied = Environment.GetEnvironmentVariable("ILLYAVERSE_LAZER_CONTROL_ROOT");
         if (supplied is null || !Path.IsPathFullyQualified(supplied)) return false;
@@ -125,16 +126,65 @@ internal static class SafeStartupDiagnostic
         var fixtureRoot = localPath(Path.Combine(Path.GetDirectoryName(typeof(StartupHook).Assembly.Location)!, "../../..", "proof-output"));
         var parent = Path.GetDirectoryName(control);
         var filename = Path.GetFileName(control);
-        if (!string.Equals(parent, fixtureRoot, StringComparison.OrdinalIgnoreCase)
+        if (!string.Equals(parent, fixtureRoot, ClientAssemblyPath.Comparison)
             || !filename.StartsWith("data-transfiguration-proof", StringComparison.Ordinal)
             || !filename.EndsWith("-control", StringComparison.Ordinal)) return false;
 #else
-        var expected = localPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Illyaverse", "Kaleidoscope"));
-        if (!string.Equals(control, expected, StringComparison.OrdinalIgnoreCase)) return false;
+        var expected = localPath(Path.Combine(ClientAssemblyPath.LocalDataHome(), "Illyaverse", "Kaleidoscope"));
+        if (!string.Equals(control, expected, ClientAssemblyPath.Comparison)) return false;
 #endif
         destination = Path.Combine(control, suffix == "failure" ? $"session-failure-{session}.json"
             : $"session-progress-{session}-{suffix["progress-".Length..]}.json");
         return true;
+    }
+
+    // Linux twin of the Windows publication above: ancestors are opened without following links,
+    // the sidecar is created exclusively (0600) relative to the verified directory and renamed
+    // into place with RENAME_NOREPLACE (or link) so an existing entry is never replaced.
+    private static bool publishLinux(string control, string destination, Func<string, byte[]> payloadFactory, string session)
+    {
+        var chain = LinuxNative.OpenDirectoryChain(ClientAssemblyPath.CanonicalPosix(control));
+        try
+        {
+            var directory = chain[^1];
+            var name = Path.GetFileName(destination);
+            using (var existing = LinuxNative.OpenRegularForRead(directory, name))
+                if (!existing.IsInvalid || LinuxNative.LastError != LinuxNative.ENOENT) return false;
+            var payload = payloadFactory(session);
+            if (payload.Length is 0 or > 2048) return false;
+#if ILLYAVERSE_FIXTURE
+            FixturePublishObserver?.Invoke(StartupPublishPhase.Locked);
+#endif
+            var temporary = Path.GetFileNameWithoutExtension(destination) + "-" + Guid.NewGuid().ToString("N") + ".tmp";
+            using var handle = LinuxNative.CreateExclusive(directory, temporary, 0x180);
+            if (handle.IsInvalid) return false;
+            var published = false;
+            FileStream? stream = null;
+            try
+            {
+                stream = new FileStream(handle, FileAccess.Write, 1, false);
+#if ILLYAVERSE_FIXTURE
+                FixturePublishObserver?.Invoke(StartupPublishPhase.Created);
+#endif
+                stream.Write(payload);
+#if ILLYAVERSE_FIXTURE
+                FixturePublishObserver?.Invoke(StartupPublishPhase.Written);
+#endif
+                stream.Flush(flushToDisk: true);
+#if ILLYAVERSE_FIXTURE
+                FixturePublishObserver?.Invoke(StartupPublishPhase.BeforeRename);
+#endif
+                published = LinuxNative.RenameNoReplace(directory, temporary, name);
+                return published;
+            }
+            catch { return false; }
+            finally
+            {
+                if (!published) LinuxNative.Unlink(directory, temporary);
+                stream?.Dispose();
+            }
+        }
+        finally { foreach (var handle in chain) handle.Dispose(); }
     }
 
     private static bool renameCreateOnly(SafeFileHandle handle, SafeFileHandle directory, string destination)
@@ -166,6 +216,7 @@ internal static class SafeStartupDiagnostic
 
     private static string localPath(string value)
     {
+        if (!OperatingSystem.IsWindows()) return ClientAssemblyPath.CanonicalPosix(Path.GetFullPath(value));
         var path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(value));
         if (path.StartsWith(@"\\?\", StringComparison.Ordinal))
         {

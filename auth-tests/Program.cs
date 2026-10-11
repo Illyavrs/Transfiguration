@@ -40,6 +40,8 @@ internal static class Program
             purePartitionProof();
             accountProfilesProof(root);
             fileBoundaryProof(root);
+            portableProof();
+            if (OperatingSystem.IsLinux()) linuxFileProof(root);
             Console.WriteLine($"PASS {checks} original source-linked auth-only data/atomic-file checks; synthetic files only, no client assemblies/config/Realm/player data/network");
             return 0;
         }
@@ -117,6 +119,85 @@ internal static class Program
         File.WriteAllBytes(path, clearedBytes);
         rejected(() => AuthConfigFiles.Encode(root, "https://illya.test/path", accountA), "config_auth_invalid", "private origin with a path cannot bind credentials");
         rejected(() => AuthConfigFiles.Encode(root, "https://illya.test:443", accountA), "config_auth_invalid", "noncanonical origin default port cannot create an ambiguous profile");
+    }
+
+    // Platform-neutral logic that runs identically on Windows and Linux.
+    private static void portableProof()
+    {
+        require(ClientAssemblyPath.CanonicalPosix("/a/b/../c//d/./") == "/a/c/d", "POSIX canonical path resolves dot segments and duplicate separators");
+        require(ClientAssemblyPath.CanonicalPosix("/..") == "/" && ClientAssemblyPath.CanonicalPosix("/") == "/", "POSIX canonical path never climbs above root");
+        require(ClientAssemblyPath.CanonicalPosix("/a\\b") == "/a\\b", "backslash is an ordinary POSIX file-name character");
+        foreach (var bad in new[] { "relative/path", "", "./x", "/a\0b" })
+        {
+            try { _ = ClientAssemblyPath.CanonicalPosix(bad); }
+            catch (TransfigurationStartupException) { require(true, "non-absolute or NUL POSIX path rejects"); continue; }
+            throw new InvalidOperationException("FAIL auth-only POSIX path accepted");
+        }
+        var windows = ClientProfile.Windows;
+        var linux = ClientProfile.Linux;
+        require(new[] { linux.GameSha256, linux.FrameworkSha256, linux.EntrySha256, linux.HttpSha256, linux.WebSocketsSha256 }
+            .Intersect(new[] { windows.GameSha256, windows.FrameworkSha256, windows.EntrySha256, windows.HttpSha256, windows.WebSocketsSha256 }).Count() == 0,
+            "Windows and Linux stock hashes are distinct pins");
+        var repository = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../.."));
+        foreach (var (file, profile) in new[] { ("compatibility.json", windows), ("compatibility.linux-x64.json", linux) })
+        {
+            using var manifest = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(repository, file)));
+            var assemblies = manifest.RootElement.GetProperty("assemblies");
+            string hash(string name) => assemblies.GetProperty(name).GetProperty("sha256").GetString()!;
+            require(manifest.RootElement.GetProperty("platform").GetString() == profile.Platform
+                && string.Equals(hash("osu.Game.dll"), profile.GameSha256, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(hash("osu.Framework.dll"), profile.FrameworkSha256, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(hash("osu!.dll"), profile.EntrySha256, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(hash("System.Net.Http.dll"), profile.HttpSha256, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(hash("System.Net.WebSockets.Client.dll"), profile.WebSocketsSha256, StringComparison.OrdinalIgnoreCase)
+                && assemblies.GetProperty("osu.Game.dll").GetProperty("version").GetString() == ClientProfile.GameVersion
+                && assemblies.GetProperty("osu.Framework.dll").GetProperty("version").GetString() == ClientProfile.FrameworkVersion
+                && assemblies.GetProperty("osu!.dll").GetProperty("version").GetString() == ClientProfile.EntryVersion,
+                "compiled " + profile.Platform + " pins equal " + file);
+        }
+    }
+
+    // Linux-only: runs the descriptor-based implementation against a real kernel.
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    private static void linuxFileProof(string root)
+    {
+        var area = Path.Combine(root, "linux");
+        Directory.CreateDirectory(area);
+        var auth = Path.Combine(area, AuthConfigFiles.Filename);
+        var bytes = utf8.GetBytes("{\"protocol\":1,\"profiles\":{}}");
+        AuthConfigFiles.Write(area, AuthConfigFiles.Filename, bytes, []);
+        require(File.ReadAllBytes(auth).SequenceEqual(bytes) && File.GetUnixFileMode(auth) == (UnixFileMode.UserRead | UnixFileMode.UserWrite),
+            "private account store is created with mode 0600");
+        var ini = Path.Combine(area, "game.ini");
+        File.WriteAllBytes(ini, utf8.GetBytes("AudioOffset = 1\n"));
+        File.SetUnixFileMode(ini, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+        AuthConfigFiles.Write(area, "game.ini", utf8.GetBytes("AudioOffset = 2\n"), utf8.GetBytes("AudioOffset = 1\n"));
+        require(File.ReadAllText(ini) == "AudioOffset = 2\n" && File.GetUnixFileMode(ini) == (UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead),
+            "shared game.ini replacement keeps the mode the game gave it");
+        require(!Directory.GetFiles(area, ".illyaverse-auth-*.tmp").Any(), "no temporary file remains after atomic replacement");
+        rejected(() => AuthConfigFiles.Write(area, "game.ini", utf8.GetBytes("AudioOffset = 3\n"), utf8.GetBytes("stale\n")), "config_file_changed", "stale expected bytes reject on Linux");
+        require(!Directory.GetFiles(area, ".illyaverse-auth-*.tmp").Any(), "rejected save leaves no temporary file");
+        rejected(() => AuthConfigFiles.Read(area, "../escape"), "config_file_unverified", "leaf name cannot traverse");
+        rejected(() => AuthConfigFiles.Read(area, "sub/dir"), "config_file_unverified", "leaf name cannot contain a separator");
+
+        var fifo = Path.Combine(area, "fifo-area");
+        Directory.CreateDirectory(fifo);
+        using (var mkfifo = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("mkfifo", [Path.Combine(fifo, AuthConfigFiles.Filename)]) { UseShellExecute = false })!)
+        {
+            mkfifo.WaitForExit();
+            require(mkfifo.ExitCode == 0, "FIFO fixture created");
+        }
+        rejected(() => AuthConfigFiles.ReadAccount(fifo, endpointA), "config_file_unverified", "FIFO at the private store name is refused without blocking");
+        var real = Path.Combine(area, "real");
+        Directory.CreateDirectory(real);
+        File.WriteAllBytes(Path.Combine(real, "game.ini"), utf8.GetBytes("x = 1\n"));
+        var alias = Path.Combine(area, "alias");
+        Directory.CreateSymbolicLink(alias, real);
+        rejected(() => AuthConfigFiles.Read(alias, "game.ini"), "config_storage_unverified", "symlinked directory ancestor is refused");
+        rejected(() => AuthConfigFiles.Write(alias, "game.ini", [1], utf8.GetBytes("x = 1\n")), "config_storage_unverified", "save through a symlinked directory is refused");
+        File.CreateSymbolicLink(Path.Combine(real, AuthConfigFiles.Filename), ini);
+        rejected(() => AuthConfigFiles.ReadAccount(real, endpointA), "config_file_unverified", "private account symlink is never followed on Linux");
+        require(File.ReadAllText(ini) == "AudioOffset = 2\n", "link target stays untouched");
     }
 
     private static void fileBoundaryProof(string root)

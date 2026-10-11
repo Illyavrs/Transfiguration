@@ -9,6 +9,14 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../src/AuthConfigFiles.cs" Link="AuthConfigFiles.cs" />
+    <Compile Include="../src/AuthConfigFiles.Windows.cs" Link="AuthConfigFiles.Windows.cs" />
+    <Compile Include="../src/AuthConfigFiles.Linux.cs" Link="AuthConfigFiles.Linux.cs" />
+    <Compile Include="../src/ClientAssemblyPath.cs" Link="ClientAssemblyPath.cs" />
+    <Compile Include="../src/ClientProfile.cs" Link="ClientProfile.cs" />
+    <Compile Include="../src/LinuxNative.cs" Link="LinuxNative.cs" />
+    <Compile Include="../src/NetworkPolicy.cs" Link="NetworkPolicy.cs" />
+    <Compile Include="../src/ExternalBrowserPolicy.cs" Link="ExternalBrowserPolicy.cs" />
+    <Compile Include="../src/SafeStartupDiagnostic.cs" Link="SafeStartupDiagnostic.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
 </Project>

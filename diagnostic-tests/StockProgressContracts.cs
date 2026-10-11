@@ -5,8 +5,15 @@ using Illyaverse.Transfiguration;
 
 internal static class StockProgressContracts
 {
-    internal static int Run(string installation)
+    // The profile selects which stock build is being inspected; metadata is read only, so the Linux
+    // build can be checked on any host by naming its platform explicitly.
+    internal static int Run(string installation, string? platform = null)
     {
+        var profile = platform switch
+        {
+            null => ClientProfile.Current, "windows-x64" => ClientProfile.Windows, "linux-x64" => ClientProfile.Linux,
+            _ => throw new ArgumentException("unknown platform")
+        };
         var root = ClientAssemblyPath.Canonical(installation);
         Assembly? resolve(AssemblyLoadContext context, AssemblyName name)
         {
@@ -19,9 +26,9 @@ internal static class StockProgressContracts
         {
             var framework = AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.Combine(root, "osu.Framework.dll"));
             var desktop = AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.Combine(root, "osu!.dll"));
-            requireIdentity(framework, "2026.1005.0.0", "93B62F61C72539ED6FDB3C8EBA18D276A74DE8E1C094280B2531F5A76CAEA528");
-            requireIdentity(desktop, "2026.1005.1.0", "18AE9BB6BB441E9A654AC72C859F527041BDE52E5DCE4109F8D9074584FA57A4");
-            ClientStartupProgress.VerifyContracts(desktop, framework);
+            requireIdentity(framework, ClientProfile.FrameworkVersion, profile.FrameworkSha256);
+            requireIdentity(desktop, ClientProfile.EntryVersion, profile.EntrySha256);
+            ClientStartupProgress.VerifyContracts(desktop, framework, profile.Platform == "linux-x64");
             var hooks = new List<(MethodBase Method, string Hook, bool Postfix)>();
             ClientStartupProgress.Install((method, hook, _, postfix) => hooks.Add((method, hook, postfix)));
             if (hooks.Count != 9 || hooks.Select(hook => hook.Method).Distinct().Count() != 9
@@ -34,7 +41,7 @@ internal static class StockProgressContracts
                 Console.WriteLine("PASS observational stock contract " + hook.Method.DeclaringType!.FullName + "." + hook.Method.Name
                     + (hook.Postfix ? " successful-return postfix" : " entry prefix"));
             }
-            Console.WriteLine("PASS 9 exact hash/version-pinned startup progress contracts; metadata only, no original Main/GameHost/window/renderer/GPU/Realm/player data/network executed");
+            Console.WriteLine($"PASS 9 exact hash/version-pinned {profile.Platform} startup progress contracts; metadata only, no original Main/GameHost/window/renderer/GPU/Realm/player data/network executed");
             return 0;
         }
         catch

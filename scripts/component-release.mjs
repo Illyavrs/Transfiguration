@@ -32,6 +32,21 @@ export const REQUIRED_CONTRACTS = Object.freeze([
   'RulesetStore.addRuleset', 'SocketsHttpHandler.SendAsync', 'ClientWebSocket.ConnectAsync(Uri,CancellationToken)',
 ]);
 const SOURCE_FILES = COMPONENT_FILES.filter((name) => name !== BRIDGE && name !== 'artifact.json');
+// Each platform pins its own stock client build. Windows keeps its original exact-"passed" rules.
+// Linux is experimental: a bare "passed" is never accepted there, every passed state must be
+// qualified by the evidence that produced it, and every proof that needs a real client stays pending.
+export const PLATFORM_POLICIES = Object.freeze({
+  'windows-x64': Object.freeze({
+    exactPassed: ['native_metadata_and_endpoints', 'http_websocket_and_redirects', 'mandatory_bootstrap_before_headless_main', 'production_destination_policy'],
+    qualifiedPassed: [],
+    pendingHuman: ['real_api_worker_refresh_and_login', 'native_gui_and_login'],
+  }),
+  'linux-x64': Object.freeze({
+    exactPassed: [],
+    qualifiedPassed: ['native_metadata_and_endpoints'],
+    pendingHuman: ['real_api_worker_refresh_and_login', 'native_gui_and_login', 'explicit_ui_current_session_revocation'],
+  }),
+});
 const MANIFEST_FIELDS = ['protocol', 'version', 'platform', 'repository', 'tag', 'asset', 'bytes', 'sha256', 'bridge_sha256', 'transfiguration_commit', 'launcher_requirement', 'files'];
 
 class ReleaseError extends Error {}
@@ -73,14 +88,20 @@ export function validateLauncherRequirement(value) {
   return value;
 }
 
+export function validatePlatform(value) {
+  requireValue(typeof value === 'string' && Object.hasOwn(PLATFORM_POLICIES, value), 'Invalid component compatibility platform.');
+  return value;
+}
+
 export function buildManifest(input) {
   const version = validateVersion(input.version);
+  const platform = validatePlatform(input.platform ?? 'windows-x64');
   fields(input.files, COMPONENT_FILES, 'component file inventory');
   const files = Object.fromEntries(COMPONENT_FILES.map((name) => [name, validateHash(input.files[name])]));
   requireValue(Number.isSafeInteger(input.bytes) && input.bytes >= 1 && input.bytes <= MAX_ARCHIVE_BYTES, 'Archive exceeds the component update size limit.');
   return {
-    protocol: 1, version, platform: 'windows-x64', repository: validateRepository(input.repository),
-    tag: `v${version}`, asset: `Transfiguration-${version}-windows-x64.zip`,
+    protocol: 1, version, platform, repository: validateRepository(input.repository),
+    tag: `v${version}`, asset: `Transfiguration-${version}-${platform}.zip`,
     bytes: input.bytes, sha256: validateHash(input.sha256), bridge_sha256: files[BRIDGE],
     transfiguration_commit: commit(input.transfigurationCommit),
     launcher_requirement: validateLauncherRequirement(input.launcherRequirement), files,
@@ -89,7 +110,7 @@ export function buildManifest(input) {
 
 export function createSignedEnvelope(manifest, privatePem, publicHex) {
   fields(manifest, MANIFEST_FIELDS, 'signed manifest');
-  const expected = buildManifest({ version: manifest.version, repository: manifest.repository, bytes: manifest.bytes, sha256: manifest.sha256, transfigurationCommit: manifest.transfiguration_commit, launcherRequirement: manifest.launcher_requirement, files: manifest.files });
+  const expected = buildManifest({ platform: manifest.platform, version: manifest.version, repository: manifest.repository, bytes: manifest.bytes, sha256: manifest.sha256, transfigurationCommit: manifest.transfiguration_commit, launcherRequirement: manifest.launcher_requirement, files: manifest.files });
   requireValue(MANIFEST_FIELDS.every((key) => key === 'files' || manifest[key] === expected[key]), 'Signed manifest bindings do not match.');
   validateHash(publicHex);
   let key;
@@ -167,7 +188,7 @@ export function validateProductionMetadata(artifact, compatibility, bridgeHash) 
   fields(compatibility, [...Object.keys(SECURITY_FIELDS), 'platform', 'runtime', 'ruleset_api', 'harmony', 'assemblies', 'contracts', 'verification'], 'compatibility metadata');
   for (const [name, expected] of Object.entries(SECURITY_FIELDS)) requireValue(artifact[name] === expected && compatibility[name] === expected, `Invalid production security policy: ${name}.`);
   requireValue(validateHash(artifact.sha256) === validateHash(bridgeHash), 'Production bridge hash does not match artifact metadata.');
-  requireValue(compatibility.platform === 'windows-x64', 'Invalid component compatibility platform.');
+  const policy = PLATFORM_POLICIES[validatePlatform(compatibility.platform)];
   for (const name of ['runtime', 'ruleset_api', 'harmony']) validateVersion(compatibility[name]);
   fields(compatibility.assemblies, NATIVE_ASSEMBLIES, 'native compatibility inventory');
   for (const assembly of NATIVE_ASSEMBLIES) {
@@ -177,8 +198,11 @@ export function validateProductionMetadata(artifact, compatibility, bridgeHash) 
   }
   requireValue(Array.isArray(compatibility.contracts) && compatibility.contracts.length > 0 && compatibility.contracts.length <= 256 && compatibility.contracts.every((contract) => typeof contract === 'string' && contract.trim() === contract && contract.length > 0 && Buffer.byteLength(contract, 'utf8') <= 512) && new Set(compatibility.contracts).size === compatibility.contracts.length && REQUIRED_CONTRACTS.every((required) => compatibility.contracts.includes(required)), 'Invalid or incomplete compatibility contracts.');
   requireValue(object(compatibility.verification) && Object.keys(compatibility.verification).length > 0 && Object.keys(compatibility.verification).length <= 128 && Object.entries(compatibility.verification).every(([name, status]) => name.length > 0 && Buffer.byteLength(name, 'utf8') <= 256 && typeof status === 'string' && Buffer.byteLength(status, 'utf8') <= 256 && /^(?:passed(?:_[a-z0-9]+)*|pending(?:_[a-z0-9]+)+)$/.test(status)), 'Invalid compatibility verification states.');
-  for (const name of ['native_metadata_and_endpoints', 'http_websocket_and_redirects', 'mandatory_bootstrap_before_headless_main', 'production_destination_policy']) requireValue(compatibility.verification[name] === 'passed', 'Required production compatibility proof is absent.');
-  for (const name of ['real_api_worker_refresh_and_login', 'native_gui_and_login']) requireValue(compatibility.verification[name] === 'pending_human_test', 'Compatibility must preserve pending human client verification.');
+  for (const name of policy.exactPassed) requireValue(compatibility.verification[name] === 'passed', 'Required production compatibility proof is absent.');
+  for (const name of policy.qualifiedPassed) requireValue(/^passed(?:_[a-z0-9]+)+$/.test(compatibility.verification[name] ?? ''), 'Required production compatibility proof is absent.');
+  for (const name of policy.pendingHuman) requireValue(compatibility.verification[name] === 'pending_human_test', 'Compatibility must preserve pending human client verification.');
+  // A platform without exact proofs may not claim any unqualified pass: that wording is reserved for fully proven builds.
+  if (policy.exactPassed.length === 0) requireValue(Object.values(compatibility.verification).every((status) => status !== 'passed'), 'Unqualified verification claims are not accepted for this platform.');
   nativeClientVersion(compatibility);
 }
 
