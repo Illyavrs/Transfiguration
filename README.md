@@ -23,7 +23,10 @@ removes its owned plugin after exit. It adds no playable ruleset. Manual DLL
 installation does not provide the required startup guarantees.
 
 - **Fail closed:** unknown versions, mismatched hashes or failed required patches
-  abort startup. HTTP/WebSocket guards fix one private HTTPS origin per launch,
+  abort startup. The one exception is a lazer release other than the pinned one that
+  the player explicitly accepted in Kaleidoscope: only the exact version and hash of
+  the three client assemblies is waived, while the runtime, network assemblies and
+  every structural contract and guard stay mandatory. HTTP/WebSocket guards fix one private HTTPS origin per launch,
   refuse official fallback and foreign destinations, and retain TLS verification.
 - **Isolate accounts:** private credentials use `auth.illyaverse.json`, partitioned
   by server origin. Shared `game.ini` preserves official account lines and gameplay

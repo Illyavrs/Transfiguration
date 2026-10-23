@@ -157,9 +157,16 @@ internal static class Guard
     {
         // This allowlist is updated only after the isolated contract and transport proofs pass.
         var profile = ClientProfile.Current;
-        requireAssembly(game, ClientProfile.GameVersion, profile.GameSha256);
-        requireAssembly(framework, ClientProfile.FrameworkVersion, profile.FrameworkSha256);
-        requireAssembly(desktop, ClientProfile.EntryVersion, profile.EntrySha256);
+        // Kaleidoscope sets the flag only after the player accepted the risk of an untested lazer release.
+        // That waives the exact release identity of the three client assemblies alone: the runtime and
+        // network assemblies, the structural contracts below and every guard stay mandatory.
+        var riskAccepted = Environment.GetEnvironmentVariable("ILLYAVERSE_LAZER_ACCEPT_RISK") == "1";
+        if (!riskAccepted)
+        {
+            requireAssembly(game, ClientProfile.GameVersion, profile.GameSha256);
+            requireAssembly(framework, ClientProfile.FrameworkVersion, profile.FrameworkSha256);
+            requireAssembly(desktop, ClientProfile.EntryVersion, profile.EntrySha256);
+        }
         requireAssembly(typeof(SocketsHttpHandler).Assembly, ClientProfile.NetworkVersion, profile.HttpSha256);
         requireAssembly(typeof(ClientWebSocket).Assembly, ClientProfile.NetworkVersion, profile.WebSocketsSha256);
         if (Environment.Version != new Version(10, 0, 12)) fail("runtime_version_unverified");
